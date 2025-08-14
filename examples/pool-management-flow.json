@@ -1,0 +1,133 @@
+[
+  {
+    "id": "pool-management-flow",
+    "label": "Pool Management System",
+    "nodes": [
+      {
+        "id": "dac-voltage-control",
+        "type": "waveshare-da",
+        "x": 200,
+        "y": 100,
+        "z": "pool-management-flow",
+        "name": "Voltage Control",
+        "port": 0,
+        "value": 32768,
+        "autoUpdate": true,
+        "updateInterval": 5000,
+        "wires": [["voltage-display"]]
+      },
+      {
+        "id": "dac-current-control",
+        "type": "waveshare-da",
+        "x": 200,
+        "y": 200,
+        "z": "pool-management-flow",
+        "name": "Current Control",
+        "port": 1,
+        "value": 16384,
+        "autoUpdate": true,
+        "updateInterval": 5000,
+        "wires": [["current-display"]]
+      },
+      {
+        "id": "adc-current-sensor",
+        "type": "waveshare-ad",
+        "x": 200,
+        "y": 300,
+        "z": "pool-management-flow",
+        "name": "Current Sensor (Single-Ended)",
+        "channel": 0,
+        "gain": 16,
+        "buffered": false,
+        "dataRate": 1000,
+        "autoRead": true,
+        "readInterval": 2000,
+        "wires": [["current-monitor"]]
+      },
+      {
+        "id": "adc-voltage-monitor",
+        "type": "waveshare-ad",
+        "x": 200,
+        "y": 400,
+        "z": "pool-management-flow",
+        "name": "Voltage Monitor (Single-Ended)",
+        "channel": 2,
+        "gain": 8,
+        "buffered": true,
+        "dataRate": 500,
+        "autoRead": true,
+        "readInterval": 3000,
+        "wires": [["voltage-monitor"]]
+      },
+      {
+        "id": "adc-ph-sensor",
+        "type": "waveshare-ad",
+        "x": 200,
+        "y": 500,
+        "z": "pool-management-flow",
+        "name": "pH Sensor (Single-Ended)",
+        "channel": 4,
+        "gain": 32,
+        "buffered": true,
+        "dataRate": 100,
+        "autoRead": true,
+        "readInterval": 10000,
+        "wires": [["ph-monitor"]]
+      },
+      {
+        "id": "voltage-display",
+        "type": "debug",
+        "x": 400,
+        "y": 100,
+        "z": "pool-management-flow",
+        "name": "Voltage Output",
+        "complete": "payload",
+        "active": true,
+        "wires": []
+      },
+      {
+        "id": "current-display",
+        "type": "debug",
+        "x": 400,
+        "y": 200,
+        "z": "pool-management-flow",
+        "name": "Current Output",
+        "complete": "payload",
+        "active": true,
+        "wires": []
+      },
+      {
+        "id": "current-monitor",
+        "type": "debug",
+        "x": 400,
+        "y": 300,
+        "z": "pool-management-flow",
+        "name": "Current Reading",
+        "complete": "payload",
+        "active": true,
+        "wires": []
+      },
+      {
+        "id": "voltage-monitor",
+        "x": 400,
+        "y": 400,
+        "z": "pool-management-flow",
+        "name": "Voltage Reading",
+        "complete": "payload",
+        "active": true,
+        "wires": []
+      },
+      {
+        "id": "ph-monitor",
+        "type": "debug",
+        "x": 400,
+        "y": 500,
+        "z": "pool-management-flow",
+        "name": "pH Reading",
+        "complete": "payload",
+        "active": true,
+        "wires": []
+      }
+    ]
+  }
+]

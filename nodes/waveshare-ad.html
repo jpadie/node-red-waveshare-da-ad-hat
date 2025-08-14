@@ -1,0 +1,233 @@
+<script type="text/javascript">
+    RED.nodes.registerType('waveshare-ad',{
+        category: 'Waveshare HAT',
+        color: '#C0DEED',
+        defaults: {
+            name: {value:""},
+            channel: {value:0},
+            gain: {value:1},
+            buffered: {value:false},
+            dataRate: {value:1000},
+            autoRead: {value:false},
+            readInterval: {value:1000}
+        },
+        inputs:1,
+        outputs:1,
+        icon: "bridge.png",
+        label: function() {
+            return this.name||"Waveshare AD";
+        },
+        oneditprepare: function() {
+            // Channel selection
+            $('#node-input-channel').on('change', function() {
+                var channel = parseInt($(this).val());
+                $('#channel-info').text('Channel ' + channel + ' selected');
+            });
+            
+            // Gain selection
+            $('#node-input-gain').on('change', function() {
+                var gain = parseInt($(this).val());
+                $('#gain-info').text(gain + 'x gain selected');
+            });
+            
+            // Data rate selection
+            $('#node-input-dataRate').on('change', function() {
+                var rate = parseInt($(this).val());
+                $('#rate-info').text(rate + ' SPS selected');
+            });
+            
+            // Auto-read toggle
+            $('#node-input-autoRead').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#read-interval-group').show();
+                } else {
+                    $('#read-interval-group').hide();
+                }
+            });
+            
+            // Initial state
+            $('#node-input-autoRead').trigger('change');
+            $('#node-input-channel').trigger('change');
+            $('#node-input-gain').trigger('change');
+            $('#node-input-dataRate').trigger('change');
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="waveshare-ad">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-channel"><i class="fa fa-plug"></i> ADC Channel</label>
+        <select id="node-input-channel">
+            <option value="0">Channel 0</option>
+            <option value="1">Channel 1</option>
+            <option value="2">Channel 2</option>
+            <option value="3">Channel 3</option>
+            <option value="4">Channel 4</option>
+            <option value="5">Channel 5</option>
+            <option value="6">Channel 6</option>
+            <option value="7">Channel 7</option>
+        </select>
+        <div id="channel-info" class="help-info">Channel 0 selected</div>
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-gain"><i class="fa fa-signal"></i> Gain</label>
+        <select id="node-input-gain">
+            <option value="1">1x</option>
+            <option value="2">2x</option>
+            <option value="4">4x</option>
+            <option value="8">8x</option>
+            <option value="16">16x</option>
+            <option value="32">32x</option>
+            <option value="64">64x</option>
+        </select>
+        <div id="gain-info" class="help-info">1x gain selected</div>
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-buffered">
+            <input type="checkbox" id="node-input-buffered" style="display: inline-block; width: auto; vertical-align: top;">
+            <span style="width: auto; display: inline-block; margin-left: 5px;">
+                <i class="fa fa-shield"></i> Input Buffer Enabled
+            </span>
+        </label>
+        <div class="help-info">Enable for high-impedance sources</div>
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-dataRate"><i class="fa fa-tachometer"></i> Data Rate (SPS)</label>
+        <select id="node-input-dataRate">
+            <option value="2.5">2.5 SPS</option>
+            <option value="5">5 SPS</option>
+            <option value="10">10 SPS</option>
+            <option value="15">15 SPS</option>
+            <option value="25">25 SPS</option>
+            <option value="30">30 SPS</option>
+            <option value="50">50 SPS</option>
+            <option value="60">60 SPS</option>
+            <option value="100">100 SPS</option>
+            <option value="500">500 SPS</option>
+            <option value="1000" selected>1000 SPS</option>
+            <option value="2000">2000 SPS</option>
+            <option value="3750">3750 SPS</option>
+            <option value="7500">7500 SPS</option>
+            <option value="15000">15000 SPS</option>
+            <option value="30000">30000 SPS</option>
+        </select>
+        <div id="rate-info" class="help-info">1000 SPS selected</div>
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-autoRead">
+            <input type="checkbox" id="node-input-autoRead" style="display: inline-block; width: auto; vertical-align: top;">
+            <span style="width: auto; display: inline-block; margin-left: 5px;">
+                <i class="fa fa-refresh"></i> Auto-read
+            </span>
+        </label>
+    </div>
+    
+    <div class="form-row" id="read-interval-group" style="display: none;">
+        <label for="node-input-readInterval"><i class="fa fa-clock-o"></i> Read Interval (ms)</label>
+        <input type="number" id="node-input-readInterval" min="100" max="60000" value="1000">
+    </div>
+    
+    <div class="form-row">
+        <div class="help-info">
+            <p><i class="fa fa-info-circle"></i> <strong>Single-Ended Channels (0-7):</strong></p>
+            <ul style="margin-left: 20px;">
+                <li><strong>0-1:</strong> Current sensing (Hall effect sensors)</li>
+                <li><strong>2-3:</strong> Voltage monitoring (resistor dividers)</li>
+                <li><strong>4-5:</strong> pH sensors (high impedance)</li>
+                <li><strong>6-7:</strong> Temperature & other sensors</li>
+            </ul>
+            <p><i class="fa fa-info-circle"></i> <strong>Data Rate Guidelines:</strong></p>
+            <ul style="margin-left: 20px;">
+                <li><strong>2.5-30 SPS:</strong> Slow, high precision measurements</li>
+                <li><strong>50-500 SPS:</strong> Medium speed, general purpose</li>
+                <li><strong>1000-30000 SPS:</strong> Fast, real-time monitoring</li>
+            </ul>
+        </div>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="waveshare-ad">
+    <p>A Node-RED node for reading from the Waveshare DA-AD HAT Analog-to-Digital Converter (ADC).</p>
+    
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt>payload.channel <span class="property-type">number</span></dt>
+        <dd>ADC channel to read (0-7). Overrides the configured channel if provided.</dd>
+        <dt>payload.gain <span class="property-type">number</span></dt>
+        <dd>Gain setting (1, 2, 4, 8, 16, 32, or 64). Overrides the configured gain if provided.</dd>
+        <dt>payload.buffered <span class="property-type">boolean</span></dt>
+        <dd>Enable input buffer (true/false). Overrides the configured setting if provided.</dd>
+        <dt>payload.dataRate <span class="property-type">number</span></dt>
+        <dd>Data rate in samples per second. Overrides the configured rate if provided.</dd>
+    </dl>
+    
+    <h3>Outputs</h3>
+    <dl class="message-properties">
+        <dt>payload.channel <span class="property-type">number</span></dt>
+        <dd>The ADC channel that was read.</dd>
+        <dt>payload.gain <span class="property-type">number</span></dt>
+        <dd>The gain setting that was used.</dd>
+        <dt>payload.buffered <span class="property-type">boolean</span></dt>
+        <dd>Whether input buffering was enabled.</dd>
+        <dt>payload.dataRate <span class="property-type">number</span></dt>
+        <dd>The data rate that was used.</dd>
+        <dt>payload.reading <span class="property-type">number</span></dt>
+        <dd>The ADC reading value (24-bit signed integer).</dd>
+        <dt>payload.rawOutput <span class="property-type">string</span></dt>
+        <dd>Raw output from the Python script.</dd>
+        <dt>payload.success <span class="property-type">boolean</span></dt>
+        <dd>Whether the operation was successful.</dd>
+        <dt>payload.timestamp <span class="property-type">number</span></dt>
+        <dd>Timestamp when the reading was taken.</dd>
+    </dl>
+    
+    <h3>Configuration</h3>
+    <dl class="message-properties">
+        <dt>ADC Channel</dt>
+        <dd>Select which ADC channel to read (0-7).</dd>
+        <dt>Gain</dt>
+        <dd>Set the gain for signal amplification (1x to 64x).</dd>
+        <dt>Input Buffer</dt>
+        <dd>Enable input buffer for high-impedance sources.</dd>
+        <dt>Data Rate</dt>
+        <dd>Set the sampling rate in samples per second (2.5 to 30,000 SPS). Higher rates provide faster response but may reduce precision.</dd>
+        <dt>Auto-read</dt>
+        <dd>Enable automatic reading at the specified interval.</dd>
+        <dt>Read Interval</dt>
+        <dd>How often to automatically read the ADC (in milliseconds).</dd>
+    </dl>
+    
+    <h3>Usage Examples</h3>
+    <p><strong>Read from Channel 2 with 16x gain:</strong></p>
+    <pre><code>{"payload": {"channel": 2, "gain": 16}}</code></pre>
+    
+    <p><strong>Read from Channel 0 with custom settings:</strong></p>
+    <pre><code>{"payload": {"channel": 0, "gain": 8, "buffered": true, "dataRate": 500}}</code></pre>
+    
+    <p><strong>Use configured values:</strong></p>
+    <pre><code>{"payload": {}}</code></pre>
+    
+    <h3>Pool Management Applications</h3>
+    <ul>
+        <li><strong>Current Monitoring:</strong> Use channels 0-1 with Hall effect sensors</li>
+        <li><strong>Voltage Monitoring:</strong> Use channels 2-3 with voltage dividers</li>
+        <li><strong>pH Sensing:</strong> Use channels 4-5 for water quality monitoring</li>
+        <li><strong>Temperature:</strong> Use channels 6-7 for thermal monitoring</li>
+    </ul>
+    
+    <h3>Hardware Requirements</h3>
+    <ul>
+        <li>Waveshare DA-AD HAT</li>
+        <li>Raspberry Pi (or compatible SBC)</li>
+        <li>Python 3 with spidev and RPi.GPIO packages</li>
+    </ul>
+</script>

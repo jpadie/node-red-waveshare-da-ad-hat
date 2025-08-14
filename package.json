@@ -1,0 +1,53 @@
+{
+  "name": "node-red-contrib-waveshare-da-ad-hat",
+  "version": "1.0.0",
+  "description": "Custom Node-RED nodes for the Waveshare DA-AD HAT with working drivers",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "dev": "nodemon --watch src --ext ts --exec \"npm run build\"",
+    "clean": "rm -rf lib",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "node test-python.js",
+    "test:build": "npm run build && npm run test"
+  },
+  "keywords": [
+    "node-red",
+    "waveshare",
+    "dac",
+    "adc",
+    "raspberry-pi",
+    "hat",
+    "spi",
+    "gpio",
+    "pool-management"
+  ],
+  "author": "jpadie",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jpadie/node-red-waveshare-da-ad-hat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jpadie/node-red-waveshare-da-ad-hat/issues"
+  },
+  "homepage": "https://github.com/jpadie/node-red-waveshare-da-ad-hat#readme",
+  "node-red": {
+    "version": ">=2.0.0",
+    "nodes": {
+      "waveshare-da": "lib/nodes/waveshare-da.js",
+      "waveshare-ad": "lib/nodes/waveshare-ad.js"
+    }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "lib/**/*",
+    "python/**/*",
+    "README.md",
+    "LICENSE"
+  ]
+}
