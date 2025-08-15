@@ -6,8 +6,7 @@
     "access": "public"
   },
   "description": "Custom Node-RED nodes for the Waveshare DA-AD HAT with working drivers",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "main": "nodes/waveshare-da.js",
   "scripts": {
     "build": "tsc && npm run copy-nodes",
     "build:watch": "tsc --watch",
