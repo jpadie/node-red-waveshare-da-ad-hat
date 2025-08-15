@@ -30,6 +30,9 @@ __pycache__/
 .env.test.local
 .env.production.local
 
+# npm configuration
+.npmrc
+
 # IDE files
 .vscode/
 .idea/
@@ -67,6 +70,7 @@ jspm_packages/
 
 # Optional npm cache directory
 .npm
+.npmrc
 
 # Optional REPL history
 .node_repl_history
