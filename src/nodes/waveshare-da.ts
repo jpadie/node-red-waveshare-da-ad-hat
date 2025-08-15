@@ -15,6 +15,7 @@ interface WaveshareDAProperties {
   id: string;
   type: string;
   z: string;
+  port: number;
 }
 
 interface PythonScriptResult {
@@ -34,6 +35,11 @@ export default function(RED: any) {
         const voltage = msg.payload?.voltage ?? config.voltage;
         const vref = msg.payload?.vref ?? config.vref;
         const controlMode = msg.payload?.controlMode ?? config.controlMode;
+        let port = msg.payload?.port ?? config.port;
+
+        if (port != 0 && port != 1) {
+          port = 0;
+        }
 
         // Validate inputs
         if (typeof vref !== 'number' || vref <= 0 || vref > 10) {
@@ -51,7 +57,7 @@ export default function(RED: any) {
         }
 
         // Execute Python script
-        const result = await executePythonScript(value, voltage, vref, controlMode);
+        const result = await executePythonScript(port, value, voltage, vref, controlMode);
 
         if (result.success) {
           // Parse the output to extract the actual values used
@@ -83,9 +89,9 @@ export default function(RED: any) {
       }
     });
 
-    async function executePythonScript(value: number | undefined, voltage: number | undefined, vref: number, controlMode: 'value' | 'voltage'): Promise<PythonScriptResult> {
+    async function executePythonScript(port: number,value: number | undefined, voltage: number | undefined,vref: number, controlMode: 'value' | 'voltage'): Promise<PythonScriptResult> {
       return new Promise((resolve) => {
-        const args = ['../python/da.py', '--vref', vref.toString()];
+        const args = ['../python/da.py', '--vref', vref.toString(), "--port",port.toString()];
         
         if (controlMode === 'voltage' && voltage !== undefined) {
           args.push('--voltage', voltage.toString());
