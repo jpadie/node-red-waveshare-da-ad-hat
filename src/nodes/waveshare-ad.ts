@@ -86,7 +86,7 @@ export default function(RED: any) {
     async function executePythonScript(channel: number, gain: number, buffered: boolean, dataRate: number): Promise<PythonScriptResult> {
       return new Promise((resolve) => {
         const pythonProcess = spawn('python3', [
-          'python/ad.py',
+          '../python/ad.py',
           '--channel', channel.toString(),
           '--gain', gain.toString(),
           '--buffered', buffered ? '1' : '0',

@@ -85,7 +85,7 @@ export default function(RED: any) {
 
     async function executePythonScript(value: number | undefined, voltage: number | undefined, vref: number, controlMode: 'value' | 'voltage'): Promise<PythonScriptResult> {
       return new Promise((resolve) => {
-        const args = ['python/da.py', '--vref', vref.toString()];
+        const args = ['../python/da.py', '--vref', vref.toString()];
         
         if (controlMode === 'voltage' && voltage !== undefined) {
           args.push('--voltage', voltage.toString());
