@@ -18,7 +18,7 @@ interface PythonScriptResult {
   error?: string;
 }
 
-module.exports = function(RED: any) {
+export default function(RED: any) {
   RED.nodes.registerType('waveshare-da', function WaveshareDANode(this: Node, config: WaveshareDAProperties) {
     RED.nodes.createNode(this, config);
 
