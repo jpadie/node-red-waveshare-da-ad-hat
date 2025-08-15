@@ -4,6 +4,12 @@ types/
 *.ts
 *.tsx
 
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 # Development files
 tsconfig.json
 DEVELOPMENT.md

@@ -49,6 +49,7 @@
   },
   "files": [
     "lib/**/*",
+    "nodes/**/*",
     "python/**/*",
     "README.md",
     "LICENSE"
