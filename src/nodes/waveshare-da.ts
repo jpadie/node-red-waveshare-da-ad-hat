@@ -89,7 +89,7 @@ export default function(RED: any) {
         }
 
         const pythonProcess = spawn('python3', args, {
-          cwd: process.cwd()
+          cwd: __dirname
         });
 
         let stdout = '';

@@ -87,7 +87,7 @@ export default function(RED: any) {
           '--buffered', buffered ? '1' : '0',
           '--drate', dataRate.toString()
         ], {
-          cwd: process.cwd()
+          cwd: __dirname
         });
 
         let stdout = '';
