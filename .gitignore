@@ -9,6 +9,9 @@ lib/
 dist/
 build/
 
+# Generated node files (copied from lib/)
+nodes/*.js
+
 # Python
 __pycache__/
 *.pyc

@@ -8,10 +8,11 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run copy-nodes",
     "build:watch": "tsc --watch",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build\"",
     "clean": "rm -rf lib",
+    "copy-nodes": "cp lib/nodes/*.js nodes/",
     "prepublishOnly": "npm run clean && npm run build",
     "test": "node test-python.js",
     "test:build": "npm run build && npm run test"
@@ -40,8 +41,8 @@
   "node-red": {
     "version": ">=2.0.0",
     "nodes": {
-      "waveshare-da": "lib/nodes/waveshare-da.js",
-      "waveshare-ad": "lib/nodes/waveshare-ad.js"
+      "waveshare-da": "nodes/waveshare-da.js",
+      "waveshare-ad": "nodes/waveshare-ad.js"
     }
   },
   "engines": {
