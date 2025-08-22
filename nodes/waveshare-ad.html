@@ -8,6 +8,7 @@
             gain: {value:1},
             buffered: {value:false},
             dataRate: {value:1000},
+            vref: {value:5.0},
             autoRead: {value:false},
             readInterval: {value:1000}
         },
@@ -32,8 +33,14 @@
             
             // Data rate selection
             $('#node-input-dataRate').on('change', function() {
-                var rate = parseInt($(this).val());
+                var rate = parseFloat($(this).val());
                 $('#rate-info').text(rate + ' SPS selected');
+            });
+            
+            // VREF input
+            $('#node-input-vref').on('input', function() {
+                var vref = parseFloat($(this).val());
+                $('#vref-info').text(vref + 'V reference voltage');
             });
             
             // Auto-read toggle
@@ -50,6 +57,7 @@
             $('#node-input-channel').trigger('change');
             $('#node-input-gain').trigger('change');
             $('#node-input-dataRate').trigger('change');
+            $('#node-input-vref').trigger('input');
         }
     });
 </script>
@@ -123,6 +131,12 @@
     </div>
     
     <div class="form-row">
+        <label for="node-input-vref"><i class="fa fa-bolt"></i> Reference Voltage (V)</label>
+        <input type="number" id="node-input-vref" min="0.1" max="10.0" step="0.1" value="5.0">
+        <div id="vref-info" class="help-info">5.0V reference voltage</div>
+    </div>
+    
+    <div class="form-row">
         <label for="node-input-autoRead">
             <input type="checkbox" id="node-input-autoRead" style="display: inline-block; width: auto; vertical-align: top;">
             <span style="width: auto; display: inline-block; margin-left: 5px;">
@@ -151,6 +165,12 @@
                 <li><strong>50-500 SPS:</strong> Medium speed, general purpose</li>
                 <li><strong>1000-30000 SPS:</strong> Fast, real-time monitoring</li>
             </ul>
+            <p><i class="fa fa-info-circle"></i> <strong>Voltage Calculation:</strong></p>
+            <ul style="margin-left: 20px;">
+                <li>Voltage = (Raw Value / 2^23) × VREF / Gain</li>
+                <li>Output is provided in millivolts for precision</li>
+                <li>VREF should match your actual reference voltage</li>
+            </ul>
         </div>
     </div>
 </script>
@@ -168,22 +188,26 @@
         <dd>Enable input buffer (true/false). Overrides the configured setting if provided.</dd>
         <dt>payload.dataRate <span class="property-type">number</span></dt>
         <dd>Data rate in samples per second. Overrides the configured rate if provided.</dd>
+        <dt>payload.vref <span class="property-type">number</span></dt>
+        <dd>Reference voltage in volts. Overrides the configured VREF if provided.</dd>
     </dl>
     
     <h3>Outputs</h3>
     <dl class="message-properties">
+        <dt>payload.raw <span class="property-type">number</span></dt>
+        <dd>The raw ADC reading value (24-bit signed integer).</dd>
+        <dt>payload.voltage_mv <span class="property-type">number</span></dt>
+        <dd>The calculated voltage in millivolts.</dd>
         <dt>payload.channel <span class="property-type">number</span></dt>
         <dd>The ADC channel that was read.</dd>
         <dt>payload.gain <span class="property-type">number</span></dt>
         <dd>The gain setting that was used.</dd>
+        <dt>payload.vref <span class="property-type">number</span></dt>
+        <dd>The reference voltage that was used.</dd>
         <dt>payload.buffered <span class="property-type">boolean</span></dt>
         <dd>Whether input buffering was enabled.</dd>
         <dt>payload.dataRate <span class="property-type">number</span></dt>
         <dd>The data rate that was used.</dd>
-        <dt>payload.reading <span class="property-type">number</span></dt>
-        <dd>The ADC reading value (24-bit signed integer).</dd>
-        <dt>payload.rawOutput <span class="property-type">string</span></dt>
-        <dd>Raw output from the Python script.</dd>
         <dt>payload.success <span class="property-type">boolean</span></dt>
         <dd>Whether the operation was successful.</dd>
         <dt>payload.timestamp <span class="property-type">number</span></dt>
@@ -200,6 +224,8 @@
         <dd>Enable input buffer for high-impedance sources.</dd>
         <dt>Data Rate</dt>
         <dd>Set the sampling rate in samples per second (2.5 to 30,000 SPS). Higher rates provide faster response but may reduce precision.</dd>
+        <dt>Reference Voltage</dt>
+        <dd>Set the reference voltage used for voltage calculations (typically 5.0V).</dd>
         <dt>Auto-read</dt>
         <dd>Enable automatic reading at the specified interval.</dd>
         <dt>Read Interval</dt>
@@ -211,7 +237,7 @@
     <pre><code>{"payload": {"channel": 2, "gain": 16}}</code></pre>
     
     <p><strong>Read from Channel 0 with custom settings:</strong></p>
-    <pre><code>{"payload": {"channel": 0, "gain": 8, "buffered": true, "dataRate": 500}}</code></pre>
+    <pre><code>{"payload": {"channel": 0, "gain": 8, "buffered": true, "dataRate": 500, "vref": 3.3}}</code></pre>
     
     <p><strong>Use configured values:</strong></p>
     <pre><code>{"payload": {}}</code></pre>

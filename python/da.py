@@ -20,13 +20,8 @@ class DAC8532Controller:
     """DAC8532 DAC Controller for Waveshare DA-AD HAT"""
     
     # DAC8532 Commands
-    CMD_WRITE_DAC_A = 0x10  # Write to DAC A
-    CMD_WRITE_DAC_B = 0x12  # Write to DAC B
-    CMD_WRITE_DAC_A_UPDATE_B = 0x11  # Write to DAC A, update B
-    CMD_WRITE_DAC_B_UPDATE_A = 0x13  # Write to DAC B, update A
-    CMD_WRITE_UPDATE_ALL = 0x14  # Write to both DACs
-    CMD_POWER_DOWN = 0x15  # Power down
-    CMD_RESET = 0x16  # Reset
+    CMD_WRITE_DAC_A = 0x30  # Write to DAC A
+    CMD_WRITE_DAC_B = 0x34  # Write to DAC B
     
     # GPIO Configuration
     CS_DAC_PIN = 23
@@ -69,9 +64,8 @@ class DAC8532Controller:
     def initialize_spi(self):
         """Initialize SPI interface"""
         try:
-            self.spi = spidev.SpiDev()
-            self.spi.open(0, 0)  # Bus 0, Device 0
-            self.spi.max_speed_hz = 1000000
+            self.spi = spidev.SpiDev(0,0)
+            self.spi.max_speed_hz = 20000
             self.spi.mode = 0b01
             logger.debug("SPI initialized successfully")
         except Exception as e:

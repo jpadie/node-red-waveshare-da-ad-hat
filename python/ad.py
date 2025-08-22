@@ -305,6 +305,8 @@ Examples:
     parser.add_argument('--drate', type=float, required=True,
                        choices=[2.5, 5, 10, 15, 25, 30, 50, 60, 100, 500, 1000, 2000, 3750, 7500, 15000, 30000],
                        help='Data rate in samples per second (SPS)')
+    parser.add_argument('--vref', type=float, default=5.0,
+                       help='Reference voltage in volts (default: 5.0V)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
     
@@ -327,8 +329,19 @@ Examples:
         value = adc.read_channel(args.channel, args.gain, bool(args.buffered), args.drate)
         
         if value is not None:
-            print(f"AIN{args.channel} reading: {value}")
-            logger.info(f"Successfully read channel {args.channel}: {value}")
+            # Calculate voltage in millivolts
+            # Formula: voltage = (raw_value / 2^23) * VREF / PGA_gain
+            # Convert to millivolts by multiplying by 1000
+            voltage_mv = (value / (2**23)) * args.vref * 1000 / args.gain
+            
+            # Output both raw value and voltage
+            print(f"RAW:{value}")
+            print(f"VOLTAGE_MV:{voltage_mv:.3f}")
+            print(f"CHANNEL:{args.channel}")
+            print(f"GAIN:{args.gain}")
+            print(f"VREF:{args.vref}")
+            
+            logger.info(f"Successfully read channel {args.channel}: raw={value}, voltage={voltage_mv:.3f}mV")
             sys.exit(0)  # Success
         else:
             logger.error("Failed to read ADC value")

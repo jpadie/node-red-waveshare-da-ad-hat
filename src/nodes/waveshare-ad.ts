@@ -12,6 +12,7 @@ interface WaveshareADProperties {
   gain: number;
   buffered: boolean;
   dataRate: number;
+  vref: number;
   id: string;
   type: string;
   z: string;
@@ -21,6 +22,14 @@ interface PythonScriptResult {
   success: boolean;
   output?: string;
   error?: string;
+}
+
+interface ADCReturnData {
+  raw: number;
+  voltage_mv: number;
+  channel: number;
+  gain: number;
+  vref: number;
 }
 
 export default function(RED: any) {
@@ -34,6 +43,7 @@ export default function(RED: any) {
         const gain = msg.payload?.gain ?? config.gain;
         const buffered = msg.payload?.buffered ?? config.buffered;
         const dataRate = msg.payload?.dataRate ?? config.dataRate;
+        const vref = msg.payload?.vref ?? config.vref;
 
         // Validate inputs
         if (typeof channel !== 'number' || channel < 0 || channel > 7) {
@@ -52,28 +62,32 @@ export default function(RED: any) {
           throw new Error('Data rate must be one of the supported values');
         }
 
-        const result = await executePythonScript(channel, gain, buffered, dataRate);
+        if (typeof vref !== 'number' || vref <= 0) {
+          throw new Error('VREF must be a positive number');
+        }
+
+        const result = await executePythonScript(channel, gain, buffered, dataRate, vref);
 
         if (result.success) {
-          // Parse the output to extract the reading value
-          const readingMatch = result.output?.match(/AIN\d+ reading: (-?\d+)/);
-          const readingValue = readingMatch ? parseInt(readingMatch[1], 10) : null;
-
-          const outputMsg = {
-            ...msg,
-            payload: {
-              channel,
-              gain,
-              buffered,
-              dataRate,
-              reading: readingValue,
-              rawOutput: result.output,
-              success: true,
-              timestamp: Date.now()
-            }
-          };
-          send(outputMsg);
-          done();
+          // Parse the enhanced output to extract all values
+          const adcData = parseADCOutput(result.output || '');
+          
+          if (adcData) {
+            const outputMsg = {
+              ...msg,
+              payload: {
+                ...adcData,
+                buffered,
+                dataRate,
+                success: true,
+                timestamp: Date.now()
+              }
+            };
+            send(outputMsg);
+            done();
+          } else {
+            throw new Error('Failed to parse ADC output data');
+          }
         } else {
           throw new Error(result.error || 'Unknown error executing Python script');
         }
@@ -83,14 +97,56 @@ export default function(RED: any) {
       }
     });
 
-    async function executePythonScript(channel: number, gain: number, buffered: boolean, dataRate: number): Promise<PythonScriptResult> {
+    function parseADCOutput(output: string): ADCReturnData | null {
+      try {
+        const lines = output.trim().split('\n');
+        const data: Partial<ADCReturnData> = {};
+        
+        for (const line of lines) {
+          const [key, value] = line.split(':');
+          if (key && value !== undefined) {
+            switch (key) {
+              case 'RAW':
+                data.raw = parseInt(value, 10);
+                break;
+              case 'VOLTAGE_MV':
+                data.voltage_mv = parseFloat(value);
+                break;
+              case 'CHANNEL':
+                data.channel = parseInt(value, 10);
+                break;
+              case 'GAIN':
+                data.gain = parseInt(value, 10);
+                break;
+              case 'VREF':
+                data.vref = parseFloat(value);
+                break;
+            }
+          }
+        }
+        
+        // Verify all required fields are present
+        if (data.raw !== undefined && data.voltage_mv !== undefined && 
+            data.channel !== undefined && data.gain !== undefined && data.vref !== undefined) {
+          return data as ADCReturnData;
+        }
+        
+        return null;
+      } catch (error) {
+        console.error('Error parsing ADC output:', error);
+        return null;
+      }
+    }
+
+    async function executePythonScript(channel: number, gain: number, buffered: boolean, dataRate: number, vref: number): Promise<PythonScriptResult> {
       return new Promise((resolve) => {
         const pythonProcess = spawn('python3', [
           '../python/ad.py',
           '--channel', channel.toString(),
           '--gain', gain.toString(),
           '--buffered', buffered ? '1' : '0',
-          '--drate', dataRate.toString()
+          '--drate', dataRate.toString(),
+          '--vref', vref.toString()
         ], {
           cwd: __dirname
         });
