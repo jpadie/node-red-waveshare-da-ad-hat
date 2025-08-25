@@ -38,7 +38,7 @@ module.exports = function(RED: any) {
             return;
         }
 
-        const workerManager = hatConfig.getWorkerManager();
+        const workerManager = hatConfig.workerManager;
         if (!workerManager) {
             node.error('Worker manager not available');
             return;
@@ -55,21 +55,29 @@ module.exports = function(RED: any) {
         // Handle incoming messages
         node.on('input', async function(msg: any) {
             try {
+                // Get configuration values with payload override priority
+                const port = parseInt(msg.payload?.port) || parseInt(config.port) || 0;
+                const controlMode = msg.payload?.controlMode || config.controlMode || 'value';
+                const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 5.0;
+                
+                // Debug: Log configuration values
+                node.log(`DAC Node Config - controlMode: ${controlMode}, vref: ${vref}, port: ${port} (from payload: ${!!msg.payload?.controlMode})`);
+                
                 // Determine the value to set
                 let value: number;
                 let method: string;
                 let params: any;
 
-                if (config.controlMode === 'voltage') {
+                if (controlMode === 'voltage') {
                     // Voltage mode: input should be voltage in volts
                     const voltage = parseFloat(msg.payload) || 0;
-                    if (voltage < 0 || voltage > config.vref) {
-                        throw new Error(`Voltage must be between 0 and ${config.vref}V`);
+                    if (voltage < 0 || voltage > vref) {
+                        throw new Error(`Voltage must be between 0 and ${vref}V`);
                     }
                     
                     method = 'set_dac_voltage';
                     params = {
-                        port: parseInt(config.port) || 0,
+                        port: port,
                         voltage: voltage
                     };
                 } else {
@@ -81,7 +89,7 @@ module.exports = function(RED: any) {
                     
                     method = 'set_dac_value';
                     params = {
-                        port: parseInt(config.port) || 0,
+                        port: port,
                         value: value
                     };
                 }

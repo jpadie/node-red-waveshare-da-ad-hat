@@ -3,7 +3,15 @@
         category: 'config',
         color: '#C0DEED',
         defaults: {
-            name: {value: ''}
+            name: {value: ''},
+            spiBus: {value: 0},
+            spiDevice: {value: 0},
+            spiSpeed: {value: 1000000},
+            csPin: {value: 8},
+            rstPin: {value: 18},
+            drdyPin: {value: 7},
+            dacVref: {value: 5.0},
+            adcVref: {value: 5.0}
         },
         label: function() {
             return this.name || 'Waveshare HAT Config';

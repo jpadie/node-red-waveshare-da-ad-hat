@@ -7,13 +7,32 @@
             hatConfig: {value: ''},
             channel: {value: 0},
             gain: {value: 1},
-            drate: {value: 10.0}
+            drate: {value: 10.0},
+            vref: {value: 5.0}
         },
         inputs: 1,
         outputs: 1,
         icon: 'bridge.png',
         label: function() {
             return this.name || 'Waveshare AD';
+        },
+        oneditprepare: function() {
+            // Populate HAT Config dropdown
+            var hatConfigSelect = $('#node-input-hatConfig');
+            hatConfigSelect.empty();
+            hatConfigSelect.append($('<option value="">Select HAT Config</option>'));
+            
+            // Get all config nodes
+            RED.nodes.eachConfig(function(config) {
+                if (config.type === 'waveshare-hat-config') {
+                    hatConfigSelect.append($('<option value="' + config.id + '">' + (config.name || config.id) + '</option>'));
+                }
+            });
+            
+            // Set current value
+            if (this.hatConfig) {
+                hatConfigSelect.val(this.hatConfig);
+            }
         }
     });
 </script>
@@ -26,7 +45,9 @@
     
     <div class="form-row">
         <label for="node-input-hatConfig"><i class="fa fa-cog"></i> HAT Config</label>
-        <input type="text" id="node-input-hatConfig" placeholder="Select HAT Config">
+        <select id="node-input-hatConfig">
+            <option value="">Select HAT Config</option>
+        </select>
     </div>
     
     <div class="form-row">
@@ -75,6 +96,12 @@
             <option value="30000">30000 SPS</option>
         </select>
     </div>
+    
+    <div class="form-row">
+        <label for="node-input-vref"><i class="fa fa-bolt"></i> Reference Voltage (V)</label>
+        <input type="number" id="node-input-vref" min="0.1" max="10.0" step="0.1" value="5.0">
+        <div class="help-info">Set the ADC reference voltage (0.1V to 10.0V)</div>
+    </div>
 </script>
 
 <script type="text/html" data-help-name="waveshare-ad">
@@ -83,12 +110,21 @@
     <h3>Inputs</h3>
     <p>The node accepts any message to trigger an ADC reading. The message content is ignored.</p>
     
+    <p><strong>Payload Override:</strong> You can also include configuration parameters in the message payload to override the node settings:</p>
+    <ul>
+        <li><code>payload.channel</code>: ADC channel (0-7)</li>
+        <li><code>payload.gain</code>: Gain setting (1, 2, 4, 8, 16, 32, 64)</li>
+        <li><code>payload.drate</code>: Data rate in SPS</li>
+        <li><code>payload.vref</code>: Reference voltage in volts</li>
+    </ul>
+    
     <h3>Configuration</h3>
     <ul>
         <li><strong>HAT Config:</strong> Select the Waveshare HAT Config node that manages the hardware</li>
         <li><strong>ADC Channel:</strong> Choose from 8 single-ended channels (0-7)</li>
         <li><strong>Gain:</strong> Programmable gain amplifier setting (1x to 64x)</li>
         <li><strong>Data Rate:</strong> Sampling rate from 2.5 to 30,000 samples per second (SPS)</li>
+        <li><strong>Reference Voltage:</strong> Set the ADC reference voltage (0.1V to 10.0V)</li>
     </ul>
     
     <h3>Outputs</h3>
@@ -109,6 +145,15 @@
     <h4>Trigger ADC reading:</h4>
     <pre><code>{
     "payload": "read"  // Any message triggers a reading
+}</code></pre>
+    
+    <h4>Override configuration via payload:</h4>
+    <pre><code>{
+    "payload": "trigger",
+    "channel": 2,
+    "gain": 16,
+    "drate": 100,
+    "vref": 3.3
 }</code></pre>
     
     <h4>Output example:</h4>

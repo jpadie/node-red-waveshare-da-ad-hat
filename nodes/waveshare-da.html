@@ -5,13 +5,33 @@
         defaults: {
             name: {value: ''},
             hatConfig: {value: ''},
-            port: {value: 0}
+            port: {value: 0},
+            controlMode: {value: 'value'},
+            vref: {value: 5.0}
         },
         inputs: 1,
         outputs: 1,
         icon: 'bridge.png',
         label: function() {
             return this.name || 'Waveshare DA';
+        },
+        oneditprepare: function() {
+            // Populate HAT Config dropdown
+            var hatConfigSelect = $('#node-input-hatConfig');
+            hatConfigSelect.empty();
+            hatConfigSelect.append($('<option value="">Select HAT Config</option>'));
+            
+            // Get all config nodes
+            RED.nodes.eachConfig(function(config) {
+                if (config.type === 'waveshare-hat-config') {
+                    hatConfigSelect.append($('<option value="' + config.id + '">' + (config.name || config.id) + '</option>'));
+                }
+            });
+            
+            // Set current value
+            if (this.hatConfig) {
+                hatConfigSelect.val(this.hatConfig);
+            }
         }
     });
 </script>
@@ -24,7 +44,9 @@
     
     <div class="form-row">
         <label for="node-input-hatConfig"><i class="fa fa-cog"></i> HAT Config</label>
-        <input type="text" id="node-input-hatConfig" placeholder="Select HAT Config">
+        <select id="node-input-hatConfig">
+            <option value="">Select HAT Config</option>
+        </select>
     </div>
     
     <div class="form-row">
@@ -33,6 +55,20 @@
             <option value="0">DAC0 (Port 0)</option>
             <option value="1">DAC1 (Port 1)</option>
         </select>
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-controlMode"><i class="fa fa-sliders"></i> Control Mode</label>
+        <select id="node-input-controlMode">
+            <option value="value">Raw DAC Value (0-65535)</option>
+            <option value="voltage">Voltage Output (0-VREF)</option>
+        </select>
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-vref"><i class="fa fa-bolt"></i> Reference Voltage (V)</label>
+        <input type="number" id="node-input-vref" min="1.0" max="10.0" step="0.1" value="5.0">
+        <div class="help-info">Set the DAC reference voltage (1.0V to 10.0V)</div>
     </div>
 </script>
 
@@ -46,10 +82,26 @@
         <li><strong>Voltage:</strong> Float voltage value in volts (0 to VREF)</li>
     </ul>
     
+    <p><strong>Payload Override:</strong> You can also include configuration parameters in the message payload to override the node settings:</p>
+    <ul>
+        <li><code>payload.port</code>: DAC port (0 or 1)</li>
+        <li><code>payload.controlMode</code>: 'value' or 'voltage'</li>
+        <li><code>payload.vref</code>: Reference voltage in volts</li>
+    </ul>
+    
+    <p><strong>Payload Override:</strong> You can also include configuration parameters in the message payload to override the node settings:</p>
+    <ul>
+        <li><code>payload.port</code>: DAC port (0 or 1)</li>
+        <li><code>payload.controlMode</code>: 'value' or 'voltage'</li>
+        <li><code>payload.vref</code>: Reference voltage in volts</li>
+    </ul>
+    
     <h3>Configuration</h3>
     <ul>
         <li><strong>HAT Config:</strong> Select the Waveshare HAT Config node that manages the hardware</li>
         <li><strong>DAC Port:</strong> Choose between DAC0 (Port 0) or DAC1 (Port 1)</li>
+        <li><strong>Control Mode:</strong> Choose between raw DAC values or voltage output</li>
+        <li><strong>Reference Voltage:</strong> Set the DAC reference voltage (1.0V to 10.0V)</li>
     </ul>
     
     <h3>Outputs</h3>
@@ -74,6 +126,15 @@
     "payload": 3.3  // Set to 3.3V
 }</code></pre>
     
-    <p><strong>Note:</strong> The control mode (raw value vs. voltage) is automatically determined based on the input type. 
-    Integer inputs are treated as raw DAC values, float inputs are treated as voltage values.</p>
+    <h4>Override configuration via payload:</h4>
+    <pre><code>{
+    "payload": 3.3,
+    "port": 1,
+    "controlMode": "voltage",
+    "vref": 5.0
+}</code></pre>
+    
+    <p><strong>Note:</strong> The control mode determines how the input is interpreted. 
+    In "Raw DAC Value" mode, integer inputs are treated as DAC values. 
+    In "Voltage Output" mode, float inputs are treated as target voltage.</p>
 </script>

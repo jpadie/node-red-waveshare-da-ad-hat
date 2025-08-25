@@ -12,7 +12,7 @@ module.exports = function(RED: any) {
             return;
         }
 
-        const workerManager = hatConfig.getWorkerManager();
+        const workerManager = hatConfig.workerManager;
         if (!workerManager) {
             node.error('Worker manager not available');
             return;
@@ -29,12 +29,15 @@ module.exports = function(RED: any) {
         // Handle incoming messages
         node.on('input', async function(msg: any) {
             try {
-                // Get configuration values
-                const channel = parseInt(config.channel) || 0;
-                const gain = parseInt(config.gain) || 1;
-                const drate = parseFloat(config.drate) || 10.0;
-                const vref = parseFloat(config.vref) || 5.0;
-
+                // Get configuration values with payload override priority
+                const channel = parseInt(msg.payload?.channel) || parseInt(config.channel) || 0;
+                const gain = parseInt(msg.payload?.gain) || parseInt(config.gain) || 1;
+                const drate = parseFloat(msg.payload?.drate) || parseFloat(config.drate) || 10.0;
+                const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 5.0;
+                
+                // Debug: Log configuration values
+                node.log(`ADC Node Config - channel: ${channel}, gain: ${gain}, drate: ${drate}, vref: ${vref} (from payload: ${!!msg.payload?.channel})`);
+                
                 // Validate inputs
                 if (channel < 0 || channel > 7) {
                     throw new Error('Channel must be between 0 and 7');
