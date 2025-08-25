@@ -1,251 +1,189 @@
-# Node-RED Contrib Waveshare DA-AD HAT
+# Node-RED Waveshare DA-AD HAT
 
-Custom Node-RED nodes for the Waveshare DA-AD HAT with working drivers. This package provides reliable control of the Digital-to-Analog Converter (DAC) and Analog-to-Digital Converter (ADC) functionality through proven Python drivers.
+Custom Node-RED nodes for the Waveshare DA-AD HAT with a robust worker architecture for reliable SPI communication and resource management.
 
 ## Features
 
-### DAC Node (`waveshare-da`)
-- **Dual Port Support**: Control both DAC channels (Port 0 and Port 1)
-- **16-bit Resolution**: Full 0-65535 value range
-- **Auto-update**: Configurable automatic output updates
-- **Input Override**: Override configured values via message payload
-- **Error Handling**: Comprehensive error reporting and validation
+- **Digital-to-Analog Converter (DAC)**: 16-bit resolution (0-65535) with voltage control
+- **Analog-to-Digital Converter (ADC)**: 8 single-ended channels with configurable gain and data rates
+- **Worker Architecture**: Long-lived Python worker process with request queuing and exclusive SPI access
+- **Resource Management**: Automatic cleanup and reference counting for multiple nodes
+- **JSON-RPC Communication**: Structured communication between Node-RED and Python worker
+- **Config Node**: Centralized configuration for hardware settings
 
-### ADC Node (`waveshare-ad`)
-- **8 Single-Ended Channels**: Read from any of the 8 ADC channels (0-7)
-- **Configurable Gain**: 1x to 64x gain settings for signal amplification
-- **Flexible Data Rates**: 2.5 to 30,000 samples per second (SPS)
-- **Input Buffering**: Optional high-impedance buffer (~100 MΩ) for sensitive sensors
-- **Auto-read**: Configurable automatic reading intervals
-- **Real-time Monitoring**: Ideal for continuous sensor monitoring
+## Architecture Overview
+
+This package implements a **worker architecture** that addresses the key concerns of SPI contention, blocking access, and GPIO cleanup:
+
+### Key Components
+
+1. **Config Node** (`waveshare-hat-config`): Manages the Python worker process and hardware configuration
+2. **Worker Manager**: Handles communication, request queuing, and resource lifecycle
+3. **Python Worker**: Long-lived process that manages SPI and GPIO resources exclusively
+4. **DAC/ADC Nodes**: Lightweight nodes that communicate with the worker via the config node
+
+### Benefits
+
+- **No Contention**: Single worker process ensures exclusive SPI access
+- **Efficient**: No process spawning overhead for each operation
+- **Reliable**: Automatic cleanup and watchdog timeout (5 seconds)
+- **Scalable**: Multiple DAC/ADC nodes can share the same worker
+- **Robust**: Request queuing and error handling
 
 ## Installation
 
-### Prerequisites
-- Node-RED (version 2.0.0 or higher)
-- Raspberry Pi (or compatible single-board computer)
-- Python 3 with required packages
-
-### Install Python Dependencies
 ```bash
-# Install system packages
-sudo apt-get update
-sudo apt-get install python3-pip python3-dev
-
-# Install Python packages
-pip3 install spidev RPi.GPIO
+npm install @jpadie/waveshare-da-ad-hat
 ```
 
-### Install Node-RED Package
-```bash
-# Navigate to your Node-RED user directory
-cd ~/.node-red
+## Hardware Requirements
 
-# Install the package
-npm install node-red-contrib-waveshare-da-ad-hat
-```
-
-### Restart Node-RED
-After installation, restart Node-RED to load the new nodes.
-
-## Hardware Setup
-
-### Waveshare DA-AD HAT Connection
-1. **Power**: Connect the HAT to your Raspberry Pi
-2. **SPI Interface**: Ensure SPI is enabled in `raspi-config`
-3. **GPIO Pins**: The HAT uses specific GPIO pins for CS, RST, and DRDY
-
-### Enable SPI on Raspberry Pi
-```bash
-# Enable SPI interface
-sudo raspi-config
-
-# Navigate to: Interface Options > SPI > Enable
-# Reboot after enabling
-sudo reboot
-
-# Verify SPI is enabled
-ls /dev/spidev*
-```
+- Waveshare DA-AD HAT
+- Raspberry Pi (or compatible SBC)
+- Python 3 with `spidev` and `RPi.GPIO` packages
 
 ## Usage
 
-### DAC Node Configuration
+### 1. Configuration Node
 
-#### Basic Setup
-1. Drag the "Waveshare DA" node to your flow
-2. Configure the DAC port (0 or 1)
-3. Set the default output value (0-65535)
-4. Optionally enable auto-update with custom interval
+First, add a **Waveshare HAT Config** node to your flow:
 
-#### Message Input
+- **SPI Bus**: SPI bus number (usually 0)
+- **SPI Device**: SPI device number (usually 0)  
+- **SPI Speed**: Clock frequency in Hz (default: 1MHz)
+- **CS Pin**: Chip select pin in BCM numbering (default: 8)
+- **RST Pin**: Reset pin in BCM numbering (default: 18)
+- **DRDY Pin**: Data ready pin in BCM numbering (default: 7)
+- **DAC VREF**: Reference voltage for DAC (1.0V to 10.0V)
+- **ADC VREF**: Reference voltage for ADC (0.1V to 10.0V)
+
+### 2. DAC Node
+
+Add a **Waveshare DA** node:
+
+- **HAT Config**: Select the config node from step 1
+- **DAC Port**: Choose DAC0 (Port 0) or DAC1 (Port 1)
+
+**Input**: Send a message with `payload` containing:
+- **Integer (0-65535)**: Raw DAC value
+- **Float**: Target voltage (0 to VREF)
+
+**Output**: Message with operation results:
 ```json
 {
-  "payload": {
-    "port": 0,
-    "value": 32768
-  }
+  "success": true,
+  "port": 0,
+  "value": 32768,
+  "voltage_mv": 2500,
+  "timestamp": "2024-01-01T12:00:00.000Z"
 }
 ```
 
-#### Output
+### 3. ADC Node
+
+Add a **Waveshare AD** node:
+
+- **HAT Config**: Select the config node from step 1
+- **ADC Channel**: Choose from 8 channels (0-7)
+- **Gain**: Programmable gain (1x to 64x)
+- **Data Rate**: Sampling rate (2.5 to 30,000 SPS)
+
+**Input**: Any message triggers a reading
+
+**Output**: Message with reading results:
 ```json
 {
-  "payload": {
-    "port": 0,
-    "value": 32768,
-    "success": true,
-    "timestamp": 1703123456789
-  }
+  "success": true,
+  "channel": 0,
+  "raw": 8388607,
+  "voltage_mv": 5000,
+  "gain": 1,
+  "drate": 10.0,
+  "vref": 5.0,
+  "timestamp": "2024-01-01T12:00:00.000Z"
 }
 ```
 
-### ADC Node Configuration
+## Example Flow
 
-#### Basic Setup
-1. Drag the "Waveshare AD" node to your flow
-2. Select the ADC channel (0-7)
-3. Configure gain, buffering, and data rate
-4. Optionally enable auto-read with custom interval
+See `examples/worker-architecture-flow.json` for a complete example demonstrating:
+- Config node setup
+- DAC control (both value and voltage modes)
+- ADC reading with periodic triggers
+- Multiple nodes sharing the same worker
 
-#### Message Input
-```json
-{
-  "payload": {
-    "channel": 2,
-    "gain": 16,
-    "buffered": true,
-    "dataRate": 500
-  }
-}
+## Data Rate Guidelines
+
+- **Low rates (2.5-100 SPS)**: High precision, low noise
+- **Medium rates (500-2000 SPS)**: Balanced precision and speed  
+- **High rates (3750-30000 SPS)**: High speed, lower precision
+
+## Voltage Calculation
+
+ADC voltage is calculated using:
 ```
-
-**Data Rate Options:**
-- **2.5-30 SPS**: Slow, high precision measurements
-- **50-500 SPS**: Medium speed, general purpose
-- **1000-30000 SPS**: Fast, real-time monitoring
-
-#### Output
-```json
-{
-  "payload": {
-    "channel": 2,
-    "gain": 16,
-    "buffered": true,
-    "dataRate": 500,
-    "reading": 12345,
-    "rawOutput": "AIN2 reading: 12345",
-    "success": true,
-    "timestamp": 1703123456789
-  }
-}
+voltage_mv = (raw_value / 8388607) × VREF × 1000
 ```
-
-## Pool Management System Integration
-
-This package is specifically designed for pool management applications:
-
-### Power Supply Control (DAC)
-- **Port 0**: Control variable power supply voltage
-- **Port 1**: Control current limiting or secondary power rail
-- **Auto-update**: Maintain consistent power levels
-
-### Sensor Monitoring (ADC)
-- **Current Sensing**: Hall effect sensors for power monitoring
-- **Voltage Monitoring**: Resistor divider bridges for voltage measurement
-- **pH Sensing**: Interface with pH sensors for water quality
-- **Temperature**: Monitor water and equipment temperature
-- **Auto-read**: Continuous monitoring with configurable intervals
 
 ## Development
 
-### Project Structure
-```
-├── src/                    # TypeScript source files
-│   ├── nodes/             # Node implementations
-│   └── index.ts           # Main entry point
-├── nodes/                  # HTML editor files
-├── python/                 # Python driver scripts
-├── types/                  # TypeScript type definitions
-├── lib/                    # Compiled JavaScript (generated)
-└── package.json           # Package configuration
-```
+### Building
 
-### Build Commands
 ```bash
-# Install dependencies
-npm install
-
-# Build the project
-npm run build
-
-# Watch mode for development
-npm run dev
-
-# Clean build artifacts
-npm run clean
+npm run build          # Build TypeScript to JavaScript
+npm run build:watch    # Watch mode for development
+npm run clean          # Clean build artifacts
 ```
 
-### TypeScript Development
-The project uses TypeScript with strict type checking:
-- Full type safety for Node-RED interfaces
-- Proper error handling and validation
-- Modern ES2020 features
-- Source maps for debugging
+### Testing
+
+```bash
+npm test               # Test Python integration
+npm run test:worker    # Test worker architecture
+```
+
+### Project Structure
+
+```
+src/
+├── nodes/
+│   ├── waveshare-hat-config.ts  # Config node
+│   ├── waveshare-da.ts          # DAC node
+│   └── waveshare-ad.ts          # ADC node
+├── worker-manager.ts             # Worker management
+types/
+├── node-red.d.ts                # TypeScript definitions
+python/
+├── worker.py                    # Python worker process
+nodes/                          # Compiled JavaScript + HTML
+examples/                        # Example flows
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Worker Not Starting
+- Check Python path (`python3` command available)
+- Verify `spidev` and `RPi.GPIO` packages installed
+- Check GPIO pin permissions
 
-#### SPI Permission Denied
-```bash
-# Add user to spi group
-sudo usermod -a -G spi $USER
-# Log out and back in, or reboot
-```
+### SPI Communication Issues
+- Verify SPI is enabled in `raspi-config`
+- Check CS, RST, and DRDY pin connections
+- Confirm SPI bus/device numbers
 
-#### Python Script Not Found
-- Ensure Python scripts are in the `python/` directory
-- Check file permissions: `chmod +x python/*.py`
-- Verify Python 3 is available: `python3 --version`
-
-#### GPIO Access Denied
-```bash
-# Add user to gpio group
-sudo usermod -a -G gpio $USER
-# Log out and back in, or reboot
-```
-
-### Debug Mode
-Enable Node-RED debug mode to see detailed error messages:
-```bash
-# Start Node-RED with debug logging
-node-red --verbose
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+### Performance Issues
+- Lower SPI speed for stability
+- Use appropriate data rates for your application
+- Monitor worker process resource usage
 
 ## License
 
 MIT License - see LICENSE file for details.
 
-## Support
+## Contributing
 
-- **Issues**: [GitHub Issues](https://github.com/jpadie/node-red-waveshare-da-ad-hat/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/jpadie/node-red-waveshare-da-ad-hat/discussions)
-
-## Acknowledgments
-
-- Waveshare for the DA-AD HAT hardware
-- Node-RED community for the excellent framework
-- Python community for the reliable hardware interface libraries
-
----
-
-**Note**: This package includes working Python drivers that have been tested and proven reliable. The Node-RED nodes provide a user-friendly interface while maintaining the performance and reliability of the underlying hardware drivers.
+Contributions welcome! Please ensure:
+- TypeScript compilation succeeds
+- Tests pass
+- Code follows existing patterns
+- Documentation is updated

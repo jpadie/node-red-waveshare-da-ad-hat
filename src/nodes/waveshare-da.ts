@@ -24,118 +24,124 @@ interface PythonScriptResult {
   error?: string;
 }
 
-export default function(RED: any) {
-  RED.nodes.registerType('waveshare-da', function WaveshareDANode(this: Node, config: WaveshareDAProperties) {
-    RED.nodes.createNode(this, config);
+module.exports = function(RED: any) {
+    'use strict';
 
-    this.on('input', async (msg: any, send: any, done: any) => {
-      try {
-        // Parse inputs from message or config
-        const value = msg.payload?.value ?? config.value;
-        const voltage = msg.payload?.voltage ?? config.voltage;
-        const vref = msg.payload?.vref ?? config.vref;
-        const controlMode = msg.payload?.controlMode ?? config.controlMode;
-        let port = msg.payload?.port ?? config.port;
-
-        if (port != 0 && port != 1) {
-          port = 0;
-        }
-
-        // Validate inputs
-        if (typeof vref !== 'number' || vref <= 0 || vref > 10) {
-          throw new Error('VREF must be a number between 0 and 10V');
-        }
-
-        if (controlMode === 'voltage') {
-          if (typeof voltage !== 'number' || voltage < 0 || voltage > vref) {
-            throw new Error(`Voltage must be a number between 0 and ${vref}V`);
-          }
-        } else {
-          if (typeof value !== 'number' || value < 0 || value > 65535) {
-            throw new Error('Value must be a number between 0 and 65535');
-          }
-        }
-
-        // Execute Python script
-        const result = await executePythonScript(port, value, voltage, vref, controlMode);
-
-        if (result.success) {
-          // Parse the output to extract the actual values used
-          const valueMatch = result.output?.match(/DAC value: (\d+)/);
-          const voltageMatch = result.output?.match(/Output voltage: ([\d.]+)V/);
-          
-          const actualValue = valueMatch ? parseInt(valueMatch[1], 10) : value;
-          const actualVoltage = voltageMatch ? parseFloat(voltageMatch[1]) : voltage;
-
-          const outputMsg = {
-            ...msg,
-            payload: {
-              value: actualValue,
-              voltage: actualVoltage,
-              vref,
-              controlMode,
-              success: true,
-              timestamp: Date.now()
-            }
-          };
-          send(outputMsg);
-          done();
-        } else {
-          throw new Error(result.error || 'Unknown error executing Python script');
-        }
-      } catch (error) {
-        this.error(`DAC Error: ${error}`, msg);
-        done();
-      }
-    });
-
-    async function executePythonScript(port: number,value: number | undefined, voltage: number | undefined,vref: number, controlMode: 'value' | 'voltage'): Promise<PythonScriptResult> {
-      return new Promise((resolve) => {
-        const args = ['../python/da.py', '--vref', vref.toString(), "--port",port.toString()];
+    function WaveshareDANode(this: any, config: any) {
+        RED.nodes.createNode(this, config);
         
-        if (controlMode === 'voltage' && voltage !== undefined) {
-          args.push('--voltage', voltage.toString());
-        } else if (value !== undefined) {
-          args.push('--value', value.toString());
+        const node = this;
+        const hatConfig = RED.nodes.getNode(config.hatConfig);
+        
+        if (!hatConfig) {
+            node.error('Waveshare HAT Config node not found');
+            return;
         }
 
-        const pythonProcess = spawn('python3', args, {
-          cwd: __dirname
+        const workerManager = hatConfig.getWorkerManager();
+        if (!workerManager) {
+            node.error('Worker manager not available');
+            return;
+        }
+
+        // Add reference to worker manager
+        workerManager.addRef();
+
+        // Handle node removal
+        node.on('close', () => {
+            workerManager.removeRef();
         });
 
-        let stdout = '';
-        let stderr = '';
+        // Handle incoming messages
+        node.on('input', async function(msg: any) {
+            try {
+                // Determine the value to set
+                let value: number;
+                let method: string;
+                let params: any;
 
-        pythonProcess.stdout.on('data', (data) => {
-          stdout += data.toString();
+                if (config.controlMode === 'voltage') {
+                    // Voltage mode: input should be voltage in volts
+                    const voltage = parseFloat(msg.payload) || 0;
+                    if (voltage < 0 || voltage > config.vref) {
+                        throw new Error(`Voltage must be between 0 and ${config.vref}V`);
+                    }
+                    
+                    method = 'set_dac_voltage';
+                    params = {
+                        port: parseInt(config.port) || 0,
+                        voltage: voltage
+                    };
+                } else {
+                    // Value mode: input should be raw DAC value (0-65535)
+                    value = parseInt(msg.payload) || 0;
+                    if (value < 0 || value > 65535) {
+                        throw new Error('DAC value must be between 0 and 65535');
+                    }
+                    
+                    method = 'set_dac_value';
+                    params = {
+                        port: parseInt(config.port) || 0,
+                        value: value
+                    };
+                }
+
+                // Send request to worker
+                const result = await workerManager.request({
+                    jsonrpc: '2.0',
+                    method: method,
+                    params: params
+                });
+
+                // Update message with result
+                msg.payload = {
+                    success: true,
+                    port: result.port,
+                    value: result.value,
+                    voltage_mv: result.voltage_mv,
+                    timestamp: new Date().toISOString()
+                };
+
+                // Update node status
+                node.status({
+                    fill: 'green',
+                    shape: 'dot',
+                    text: `${method === 'set_dac_voltage' ? 'V' : 'Raw'}: ${result.voltage_mv}mV`
+                });
+
+                node.send(msg);
+                node.done();
+
+            } catch (error: any) {
+                const errorMessage = error?.message || 'Unknown error';
+                node.error(`DAC operation failed: ${errorMessage}`, msg);
+                
+                // Update message with error
+                msg.payload = {
+                    success: false,
+                    error: errorMessage,
+                    timestamp: new Date().toISOString()
+                };
+
+                // Update node status
+                node.status({
+                    fill: 'red',
+                    shape: 'ring',
+                    text: `Error: ${errorMessage}`
+                });
+
+                node.send(msg);
+                node.done();
+            }
         });
 
-        pythonProcess.stderr.on('data', (data) => {
-          stderr += data.toString();
+        // Initial status
+        node.status({
+            fill: 'grey',
+            shape: 'ring',
+            text: 'Ready'
         });
-
-        pythonProcess.on('close', (code) => {
-          if (code === 0) {
-            resolve({
-              success: true,
-              output: stdout.trim()
-            });
-          } else {
-            resolve({
-              success: false,
-              error: stderr || `Process exited with code ${code}`,
-              output: stdout.trim()
-            });
-          }
-        });
-
-        pythonProcess.on('error', (error) => {
-          resolve({
-            success: false,
-            error: error.message
-          });
-        });
-      });
     }
-  });
+
+    RED.nodes.registerType('waveshare-da', WaveshareDANode);
 };

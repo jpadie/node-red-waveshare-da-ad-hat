@@ -1,0 +1,215 @@
+{
+  "id": "worker-architecture-example",
+  "label": "Waveshare HAT Worker Architecture Example",
+  "nodes": [
+    {
+      "id": "hat-config-1",
+      "type": "waveshare-hat-config",
+      "z": "worker-architecture-example",
+      "name": "HAT Config",
+      "spiBus": "0",
+      "spiDevice": "0",
+      "spiSpeed": "1000000",
+      "csPin": "8",
+      "rstPin": "18",
+      "drdyPin": "7",
+      "dacVref": "5.0",
+      "adcVref": "5.0",
+      "x": 200,
+      "y": 200
+    },
+    {
+      "id": "dac-node-1",
+      "type": "waveshare-da",
+      "z": "worker-architecture-example",
+      "name": "DAC Control",
+      "hatConfig": "hat-config-1",
+      "port": "0",
+      "x": 500,
+      "y": 150
+    },
+    {
+      "id": "adc-node-1",
+      "type": "waveshare-ad",
+      "z": "worker-architecture-example",
+      "name": "ADC Read",
+      "hatConfig": "hat-config-1",
+      "channel": "0",
+      "gain": "1",
+      "drate": "10.0",
+      "x": 500,
+      "y": 250
+    },
+    {
+      "id": "inject-dac",
+      "type": "inject",
+      "z": "worker-architecture-example",
+      "name": "Set DAC to 3.3V",
+      "props": [
+        {
+          "p": "payload",
+          "v": "3.3",
+          "vt": "num"
+        }
+      ],
+      "repeat": "",
+      "crontab": "",
+      "once": false,
+      "onceDelay": 0.1,
+      "topic": "",
+      "x": 300,
+      "y": 150
+    },
+    {
+      "id": "inject-adc",
+      "type": "inject",
+      "z": "worker-architecture-example",
+      "name": "Read ADC",
+      "props": [
+        {
+          "p": "payload",
+          "v": "read",
+          "vt": "str"
+        }
+      ],
+      "repeat": "5",
+      "crontab": "",
+      "once": false,
+      "onceDelay": 0.1,
+      "topic": "",
+      "x": 300,
+      "y": 250
+    },
+    {
+      "id": "debug-dac",
+      "type": "debug",
+      "z": "worker-architecture-example",
+      "name": "DAC Output",
+      "active": true,
+      "tosidebar": true,
+      "console": false,
+      "tostatus": false,
+      "complete": "payload",
+      "targetType": "msg",
+      "statusVal": "",
+      "statusType": "auto",
+      "x": 700,
+      "y": 150
+    },
+    {
+      "id": "debug-adc",
+      "type": "debug",
+      "z": "worker-architecture-example",
+      "name": "ADC Output",
+      "active": true,
+      "tosidebar": true,
+      "console": false,
+      "tostatus": false,
+      "complete": "payload",
+      "targetType": "msg",
+      "statusVal": "",
+      "statusType": "auto",
+      "x": 700,
+      "y": 250
+    },
+    {
+      "id": "function-dac-value",
+      "type": "function",
+      "z": "worker-architecture-example",
+      "name": "Set DAC Value",
+      "func": "// Set DAC to specific value (0-65535)\nmsg.payload = 32768; // Mid-range value\nreturn msg;",
+      "outputs": 1,
+      "noerr": 0,
+      "initialize": "",
+      "finalize": "",
+      "libs": [],
+      "x": 300,
+      "y": 100
+    },
+    {
+      "id": "inject-dac-value",
+      "type": "inject",
+      "z": "worker-architecture-example",
+      "name": "Set DAC Value",
+      "props": [
+        {
+          "p": "payload",
+          "v": "32768",
+          "vt": "num"
+        }
+      ],
+      "repeat": "",
+      "crontab": "",
+      "once": false,
+      "onceDelay": 0.1,
+      "topic": "",
+      "x": 200,
+      "y": 100
+    }
+  ],
+  "links": [
+    {
+      "id": "link-1",
+      "source_id": "inject-dac",
+      "source_port": 0,
+      "target_id": "dac-node-1",
+      "target_port": 0,
+      "type": "link"
+    },
+    {
+      "id": "link-2",
+      "source_id": "dac-node-1",
+      "source_port": 0,
+      "target_id": "debug-dac",
+      "target_port": 0,
+      "type": "link"
+    },
+    {
+      "id": "link-3",
+      "source_id": "inject-adc",
+      "source_port": 0,
+      "target_id": "adc-node-1",
+      "target_port": 0,
+      "type": "link"
+    },
+    {
+      "id": "link-4",
+      "source_id": "adc-node-1",
+      "source_port": 0,
+      "target_id": "debug-adc",
+      "target_port": 0,
+      "type": "link"
+    },
+    {
+      "id": "link-5",
+      "source_id": "inject-dac-value",
+      "source_port": 0,
+      "target_id": "function-dac-value",
+      "target_port": 0,
+      "type": "link"
+    },
+    {
+      "id": "link-6",
+      "source_id": "function-dac-value",
+      "source_port": 0,
+      "target_id": "dac-node-1",
+      "target_port": 0,
+      "type": "link"
+    }
+  ],
+  "configs": [
+    {
+      "id": "hat-config-1",
+      "type": "waveshare-hat-config",
+      "name": "HAT Config",
+      "spiBus": "0",
+      "spiDevice": "0",
+      "spiSpeed": "1000000",
+      "csPin": "8",
+      "rstPin": "18",
+      "drdyPin": "7",
+      "dacVref": "5.0",
+      "adcVref": "5.0"
+    }
+  ]
+}

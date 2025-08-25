@@ -1,0 +1,86 @@
+<script type="text/javascript">
+    RED.nodes.registerType('waveshare-hat-config',{
+        category: 'config',
+        color: '#C0DEED',
+        defaults: {
+            name: {value: ''}
+        },
+        label: function() {
+            return this.name || 'Waveshare HAT Config';
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="waveshare-hat-config">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Waveshare HAT Config">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-spiBus"><i class="fa fa-microchip"></i> SPI Bus</label>
+        <input type="number" id="node-input-spiBus" placeholder="0" min="0" max="1" value="0">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-spiDevice"><i class="fa fa-microchip"></i> SPI Device</label>
+        <input type="number" id="node-input-spiDevice" placeholder="0" min="0" max="1" value="0">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-spiSpeed"><i class="fa fa-tachometer-alt"></i> SPI Speed (Hz)</label>
+        <input type="number" id="node-input-spiSpeed" placeholder="1000000" min="100000" max="10000000" value="1000000">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-csPin"><i class="fa fa-pin"></i> CS Pin (BCM)</label>
+        <input type="number" id="node-input-csPin" placeholder="8" min="1" max="27" value="8">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-rstPin"><i class="fa fa-pin"></i> RST Pin (BCM)</label>
+        <input type="number" id="node-input-rstPin" placeholder="18" min="1" max="27" value="18">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-drdyPin"><i class="fa fa-pin"></i> DRDY Pin (BCM)</label>
+        <input type="number" id="node-input-drdyPin" placeholder="7" min="1" max="27" value="7">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-dacVref"><i class="fa fa-bolt"></i> DAC VREF (V)</label>
+        <input type="number" id="node-input-dacVref" placeholder="5.0" min="1.0" max="10.0" step="0.1" value="5.0">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-adcVref"><i class="fa fa-bolt"></i> ADC VREF (V)</label>
+        <input type="number" id="node-input-adcVref" placeholder="5.0" min="0.1" max="10.0" step="0.1" value="5.0">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="waveshare-hat-config">
+    <p>Configuration node for Waveshare DA-AD HAT.</p>
+    
+    <h3>SPI Configuration</h3>
+    <ul>
+        <li><strong>SPI Bus:</strong> SPI bus number (usually 0)</li>
+        <li><strong>SPI Device:</strong> SPI device number (usually 0)</li>
+        <li><strong>SPI Speed:</strong> SPI clock frequency in Hz (default: 1MHz)</li>
+    </ul>
+    
+    <h3>GPIO Configuration</h3>
+    <ul>
+        <li><strong>CS Pin:</strong> Chip select pin in BCM numbering (default: 8)</li>
+        <li><strong>RST Pin:</strong> Reset pin in BCM numbering (default: 18)</li>
+        <li><strong>DRDY Pin:</strong> Data ready pin in BCM numbering (default: 7)</li>
+    </ul>
+    
+    <h3>Voltage References</h3>
+    <ul>
+        <li><strong>DAC VREF:</strong> Reference voltage for DAC output (1.0V to 10.0V)</li>
+        <li><strong>ADC VREF:</strong> Reference voltage for ADC input (0.1V to 10.0V)</li>
+    </ul>
+    
+    <p><strong>Note:</strong> This config node manages a single Python worker process that handles all DAC and ADC operations. 
+    Multiple DAC and ADC nodes can share the same config node.</p>
+</script>

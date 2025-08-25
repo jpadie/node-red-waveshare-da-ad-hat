@@ -3,65 +3,15 @@
         category: 'Waveshare HAT',
         color: '#C0DEED',
         defaults: {
-            name: {value:""},
-            port: {value:0},
-            value: {value:2048},
-            voltage: {value:1.65},
-            vref: {value:3.3},
-            autoUpdate: {value:false},
-            updateInterval: {value:1000}
+            name: {value: ''},
+            hatConfig: {value: ''},
+            port: {value: 0}
         },
-        inputs:1,
-        outputs:1,
-        icon: "bridge.png",
+        inputs: 1,
+        outputs: 1,
+        icon: 'bridge.png',
         label: function() {
-            return this.name||"Waveshare DA";
-        },
-        oneditprepare: function() {
-            // Port selection
-            $('#node-input-port').on('change', function() {
-                var port = parseInt($(this).val());
-                if (port === 0) {
-                    $('#port-0-info').show();
-                    $('#port-1-info').hide();
-                } else {
-                    $('#port-0-info').hide();
-                    $('#port-1-info').show();
-                }
-            });
-            
-            // Control mode toggle
-            $('#control-mode').on('change', function() {
-                if ($(this).val() === 'value') {
-                    $('#value-control').show();
-                    $('#voltage-control').hide();
-                } else {
-                    $('#value-control').hide();
-                    $('#voltage-control').show();
-                }
-            });
-            
-            // VREF change handler
-            $('#node-input-vref').on('change', function() {
-                var vref = parseFloat($(this).val());
-                $('#voltage-max').text(vref + 'V');
-                $('#voltage-input').attr('max', vref);
-            });
-            
-            // Auto-update toggle
-            $('#node-input-autoUpdate').on('change', function() {
-                if ($(this).is(':checked')) {
-                    $('#update-interval-group').show();
-                } else {
-                    $('#update-interval-group').hide();
-                }
-            });
-            
-            // Initial state
-            $('#node-input-autoUpdate').trigger('change');
-            $('#node-input-port').trigger('change');
-            $('#control-mode').trigger('change');
-            $('#node-input-vref').trigger('change');
+            return this.name || 'Waveshare DA';
         }
     });
 </script>
@@ -69,130 +19,61 @@
 <script type="text/html" data-template-name="waveshare-da">
     <div class="form-row">
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
-        <input type="text" id="node-input-name" placeholder="Name">
+        <input type="text" id="node-input-name" placeholder="Waveshare DA">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-hatConfig"><i class="fa fa-cog"></i> HAT Config</label>
+        <input type="text" id="node-input-hatConfig" placeholder="Select HAT Config">
     </div>
     
     <div class="form-row">
         <label for="node-input-port"><i class="fa fa-plug"></i> DAC Port</label>
         <select id="node-input-port">
-            <option value="0">Port 0</option>
-            <option value="1">Port 1</option>
+            <option value="0">DAC0 (Port 0)</option>
+            <option value="1">DAC1 (Port 1)</option>
         </select>
-    </div>
-    
-    <div class="form-row">
-        <label for="node-input-vref"><i class="fa fa-bolt"></i> Reference Voltage (V)</label>
-        <input type="number" id="node-input-vref" min="1.0" max="10.0" step="0.1" value="3.3">
-        <div class="help-info">Set the DAC reference voltage (1.0V to 10.0V)</div>
-    </div>
-    
-    <div class="form-row">
-        <label for="control-mode"><i class="fa fa-sliders"></i> Control Mode</label>
-        <select id="control-mode">
-            <option value="value">Raw DAC Value (0-4095)</option>
-            <option value="voltage">Voltage Output (0-VREF)</option>
-        </select>
-    </div>
-    
-    <div class="form-row" id="value-control">
-        <label for="node-input-value"><i class="fa fa-sliders"></i> DAC Value (0-65535)</label>
-        <input type="number" id="node-input-value" min="0" max="65535" value="32768">
-        <div class="help-info">16-bit DAC value (0 = 0V, 65535 = VREF)</div>
-    </div>
-    
-    <div class="form-row" id="voltage-control" style="display: none;">
-        <label for="node-input-voltage"><i class="fa fa-bolt"></i> Output Voltage (0-<span id="voltage-max">3.3</span>V)</label>
-        <input type="number" id="node-input-voltage" min="0" max="3.3" step="0.001" value="1.65">
-        <div class="help-info">Target output voltage (0V to VREF)</div>
-    </div>
-    
-    <div class="form-row">
-        <label for="node-input-autoUpdate">
-            <input type="checkbox" id="node-input-autoUpdate" style="display: inline-block; width: auto; vertical-align: top;">
-            <span style="width: auto; display: inline-block; margin-left: 5px;">
-                <i class="fa fa-refresh"></i> Auto-update
-            </span>
-        </label>
-    </div>
-    
-    <div class="form-row" id="update-interval-group" style="display: none;">
-        <label for="node-input-updateInterval"><i class="fa fa-clock-o"></i> Update Interval (ms)</label>
-        <input type="number" id="node-input-updateInterval" min="100" max="60000" value="1000">
-    </div>
-    
-    <div class="form-row">
-        <div id="port-0-info">
-            <p><i class="fa fa-info-circle"></i> <strong>Port 0:</strong> Typically used for voltage control</p>
-        </div>
-        <div id="port-1-info" style="display: none;">
-            <p><i class="fa fa-info-circle"></i> <strong>Port 1:</strong> Typically used for current control</p>
-        </div>
     </div>
 </script>
 
 <script type="text/html" data-help-name="waveshare-da">
-    <p>A Node-RED node for controlling the Waveshare DA-AD HAT Digital-to-Analog Converter (DAC).</p>
+    <p>Digital-to-Analog Converter (DAC) node for Waveshare DA-AD HAT.</p>
     
     <h3>Inputs</h3>
-    <dl class="message-properties">
-        <dt>payload.port <span class="property-type">number</span></dt>
-        <dd>DAC port to use (0 or 1). Overrides the configured port if provided.</dd>
-        <dt>payload.vref <span class="property-type">number</span></dt>
-        <dd>Reference voltage in volts (1.0V to 10.0V). Overrides the configured VREF if provided.</dd>
-        <dt>payload.value <span class="property-type">number</span></dt>
-        <dd>DAC output value (0-65535). Use this OR voltage, not both.</dd>
-        <dt>payload.voltage <span class="property-type">number</span></dt>
-        <dd>Target output voltage in volts (0 to VREF). Use this OR value, not both.</dd>
-    </dl>
-    
-    <h3>Outputs</h3>
-    <dl class="message-properties">
-        <dt>payload.port <span class="property-type">number</span></dt>
-        <dd>The DAC port that was used.</dd>
-        <dt>payload.value <span class="property-type">number</span></dt>
-        <dd>The actual DAC value that was set (0-4095).</dd>
-        <dt>payload.voltage <span class="property-type">number</span></dt>
-        <dd>The actual output voltage that was achieved.</dd>
-        <dt>payload.vref <span class="property-type">number</span></dt>
-        <dd>The reference voltage that was used.</dd>
-        <dt>payload.success <span class="property-type">boolean</span></dt>
-        <dd>Whether the operation was successful.</dd>
-        <dt>payload.timestamp <span class="property-type">number</span></dt>
-        <dd>Timestamp when the operation completed.</dd>
-    </dl>
+    <p>The node accepts a message with a <code>payload</code> containing either:</p>
+    <ul>
+        <li><strong>Raw DAC value:</strong> Integer between 0-65535 (16-bit resolution)</li>
+        <li><strong>Voltage:</strong> Float voltage value in volts (0 to VREF)</li>
+    </ul>
     
     <h3>Configuration</h3>
-    <dl class="message-properties">
-        <dt>DAC Port</dt>
-        <dd>Select which DAC port to use (0 or 1).</dd>
-        <dt>Reference Voltage</dt>
-        <dd>Set the DAC reference voltage (1.0V to 10.0V).</dd>
-        <dt>Control Mode</dt>
-        <dd>Choose between raw DAC values or voltage output.</dd>
-        <dt>DAC Value</dt>
-        <dd>Set the default DAC output value (0-65535).</dd>
-        <dt>Output Voltage</dt>
-        <dd>Set the target output voltage (0V to VREF).</dd>
-        <dt>Auto-update</dt>
-        <dd>Enable automatic updates at the specified interval.</dd>
-        <dt>Update Interval</dt>
-        <dd>How often to automatically update the DAC output (in milliseconds).</dd>
-    </dl>
+    <ul>
+        <li><strong>HAT Config:</strong> Select the Waveshare HAT Config node that manages the hardware</li>
+        <li><strong>DAC Port:</strong> Choose between DAC0 (Port 0) or DAC1 (Port 1)</li>
+    </ul>
+    
+    <h3>Outputs</h3>
+    <p>The node outputs a message with:</p>
+    <ul>
+        <li><code>payload.success</code>: Boolean indicating success/failure</li>
+        <li><code>payload.port</code>: DAC port used</li>
+        <li><code>payload.value</code>: Actual DAC value set (0-65535)</li>
+        <li><code>payload.voltage_mv</code>: Output voltage in millivolts</li>
+        <li><code>payload.timestamp</code>: ISO timestamp of operation</li>
+    </ul>
     
     <h3>Usage Examples</h3>
-    <p><strong>Set DAC Port 0 to mid-scale (raw value):</strong></p>
-    <pre><code>{"payload": {"port": 0, "value": 2048}}</code></pre>
     
-    <p><strong>Set DAC Port 1 to 2.5V (voltage control):</strong></p>
-    <pre><code>{"payload": {"port": 1, "voltage": 2.5, "vref": 5.0}}</code></pre>
+    <h4>Set DAC to specific value:</h4>
+    <pre><code>{
+    "payload": 32768  // Set to mid-range (2.5V with 5V VREF)
+}</code></pre>
     
-    <p><strong>Use configured values:</strong></p>
-    <pre><code>{"payload": {}}</code></pre>
+    <h4>Set DAC to specific voltage:</h4>
+    <pre><code>{
+    "payload": 3.3  // Set to 3.3V
+}</code></pre>
     
-    <h3>Hardware Requirements</h3>
-    <ul>
-        <li>Waveshare DA-AD HAT</li>
-        <li>Raspberry Pi (or compatible SBC)</li>
-        <li>Python 3 with spidev and RPi.GPIO packages</li>
-    </ul>
+    <p><strong>Note:</strong> The control mode (raw value vs. voltage) is automatically determined based on the input type. 
+    Integer inputs are treated as raw DAC values, float inputs are treated as voltage values.</p>
 </script>
