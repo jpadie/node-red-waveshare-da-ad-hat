@@ -1,5 +1,3 @@
-"use module";
-
 import { WorkerManager } from './worker-manager.js';
 
 module.exports = function(RED: any) {
