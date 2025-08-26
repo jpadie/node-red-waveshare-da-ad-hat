@@ -43,12 +43,22 @@ class SPIResourceManager:
     def __init__(self, config: WorkerConfig):
         self.config = config
         self.spi = None
+        self.gpio_initialized = False
         self.lock = threading.Lock()
-        self._setup_gpio()
+        # Don't setup GPIO immediately - wait until first use
         
     def _setup_gpio(self):
-        """Setup GPIO pins"""
+        """Setup GPIO pins - lazy initialization"""
+        if self.gpio_initialized:
+            return True
+            
         try:
+            # First, try to cleanup any existing GPIO state
+            try:
+                GPIO.cleanup()
+            except:
+                pass  # Ignore cleanup errors
+                
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.config.cs_pin, GPIO.OUT)
             GPIO.setup(self.config.rst_pin, GPIO.OUT)
@@ -57,11 +67,16 @@ class SPIResourceManager:
             # Initialize pins
             GPIO.output(self.config.cs_pin, GPIO.HIGH)
             GPIO.output(self.config.rst_pin, GPIO.HIGH)
+            
+            self.gpio_initialized = True
             logger.info(f"GPIO initialized: CS={self.config.cs_pin}, RST={self.config.rst_pin}, DRDY={self.config.drdy_pin}")
+            return True
+            
         except Exception as e:
             logger.error(f"Failed to initialize GPIO: {e}")
             logger.warning("GPIO initialization failed - this may be expected in non-Raspberry Pi environments")
-            # Don't raise - allow the worker to continue without GPIO
+            self.gpio_initialized = False
+            return False
         
     def _setup_spi(self):
         """Setup SPI connection"""
@@ -86,7 +101,13 @@ class SPIResourceManager:
             if self.spi:
                 self.spi.close()
                 self.spi = None
-            GPIO.cleanup()
+            if self.gpio_initialized:
+                try:
+                    GPIO.cleanup()
+                    self.gpio_initialized = False
+                    logger.info("GPIO resources cleaned up")
+                except Exception as e:
+                    logger.warning(f"Error during GPIO cleanup: {e}")
             logger.info("SPI and GPIO resources cleaned up")
 
 class DAC8532Controller:
@@ -104,6 +125,10 @@ class DAC8532Controller:
             raise ValueError("Value must be 0-65535")
             
         with self.spi_manager.lock:
+            # Ensure GPIO is initialized
+            if not self.spi_manager._setup_gpio():
+                raise RuntimeError("GPIO not available - cannot control DAC")
+                
             self.spi_manager._setup_spi()
             
             # DAC8532 commands: 0x30 for DAC0, 0x34 for DAC1
@@ -173,6 +198,10 @@ class ADS1256Controller:
             
     def _write_register(self, reg: int, value: int):
         """Write single ADS1256 register"""
+        # Ensure GPIO is initialized
+        if not self.spi_manager._setup_gpio():
+            raise RuntimeError("GPIO not available - cannot control ADC")
+            
         GPIO.output(self.config.cs_pin, GPIO.LOW)
         try:
             # WREG: 0101 rrrr, then number of registers-1, then value
@@ -183,6 +212,10 @@ class ADS1256Controller:
 
     def _wait_drdy(self, timeout_s: float = 0.1) -> bool:
         """Wait for DRDY to go low with timeout"""
+        # Ensure GPIO is initialized
+        if not self.spi_manager._setup_gpio():
+            raise RuntimeError("GPIO not available - cannot read DRDY")
+            
         start = time.time()
         while GPIO.input(self.config.drdy_pin) == GPIO.HIGH:
             if time.time() - start > timeout_s:
@@ -208,6 +241,10 @@ class ADS1256Controller:
             negChannel = 8
             
         with self.spi_manager.lock:
+            # Ensure GPIO is initialized
+            if not self.spi_manager._setup_gpio():
+                raise RuntimeError("GPIO not available - cannot control ADC")
+                
             self.spi_manager._setup_spi()
             
             # Stop continuous read mode and configure MUX for requested channels
