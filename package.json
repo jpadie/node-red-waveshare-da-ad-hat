@@ -12,7 +12,7 @@
     "build:watch": "tsc --watch",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build\"",
     "clean": "rm -rf lib",
-    "copy-nodes": "cp lib/nodes/*.js nodes/",
+    "copy-nodes": "cp lib/nodes/*.js nodes/ && cp lib/worker-manager.js nodes/",
     "prepublishOnly": "npm run clean && npm run build",
     "test": "node test-python.js",
     "test:worker": "node test-worker.js",
