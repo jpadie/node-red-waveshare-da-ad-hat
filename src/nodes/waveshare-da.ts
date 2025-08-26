@@ -1,3 +1,5 @@
+type: module
+
 import type { Node } from 'node-red';
 import { spawn } from 'child_process';
 import { dirname, join } from 'path';
