@@ -191,7 +191,7 @@ class ADS1256Controller:
             logger.error(f"Failed to read ADC data: {e}")
             return None
     
-    def configure_adc(self, channel: int, gain: int, buffered: bool, data_rate: float) -> bool:
+    def configure_adc(self, channel: int, gain: int, buffered: bool, data_rate: float, differential: bool = False, neg_channel: int = 8) -> bool:
         """
         Configure ADC for reading
         
@@ -213,8 +213,16 @@ class ADS1256Controller:
             self.write_register(self.REG_STATUS, buffer_value)
             
             # Configure MUX register (channel selection)
-            # Single-ended mode: AINx vs AINCOM
-            mux_value = (channel << 4) | 0x08
+            # If differential: AINp=channel, AINn=neg_channel (0-7)
+            # Else single-ended: AINp=channel, AINn=AINCOM (0x08)
+            if differential:
+                if not (0 <= neg_channel <= 7):
+                    raise ValueError('neg_channel must be 0-7 in differential mode')
+                if neg_channel == channel:
+                    raise ValueError('channel and neg_channel must differ in differential mode')
+                mux_value = (channel << 4) | (neg_channel & 0x0F)
+            else:
+                mux_value = (channel << 4) | 0x08
             self.write_register(self.REG_MUX, mux_value)
             
             # Configure ADCON register (gain and clock)
@@ -233,7 +241,7 @@ class ADS1256Controller:
             logger.error(f"Failed to configure ADC: {e}")
             return False
     
-    def read_channel(self, channel: int, gain: int, buffered: bool, data_rate: float) -> Optional[int]:
+    def read_channel(self, channel: int, gain: int, buffered: bool, data_rate: float, differential: bool = False, neg_channel: int = 8) -> Optional[int]:
         """
         Read from specified ADC channel
         
@@ -248,7 +256,7 @@ class ADS1256Controller:
         """
         try:
             # Configure ADC
-            if not self.configure_adc(channel, gain, buffered, data_rate):
+            if not self.configure_adc(channel, gain, buffered, data_rate, differential, neg_channel):
                 return None
             
             # Wait for data ready
@@ -302,6 +310,10 @@ Examples:
                        choices=[1, 2, 4, 8, 16, 32, 64], help='Gain setting')
     parser.add_argument('--buffered', type=int, required=True,
                        choices=[0, 1], help='Input buffer: 1=enabled, 0=disabled')
+    parser.add_argument('--differential', type=int, default=0,
+                       choices=[0, 1], help='Differential mode: 1=AINp-AINn, 0=single-ended to AINCOM')
+    parser.add_argument('--neg-channel', type=int, default=0,
+                       choices=range(8), help='Negative channel (AINn) for differential mode (0-7)')
     parser.add_argument('--drate', type=float, required=True,
                        choices=[2.5, 5, 10, 15, 25, 30, 50, 60, 100, 500, 1000, 2000, 3750, 7500, 15000, 30000],
                        help='Data rate in samples per second (SPS)')
@@ -326,7 +338,14 @@ Examples:
         adc.reset_ads()
         
         # Read from specified channel
-        value = adc.read_channel(args.channel, args.gain, bool(args.buffered), args.drate)
+        value = adc.read_channel(
+            args.channel,
+            args.gain,
+            bool(args.buffered),
+            args.drate,
+            bool(args.differential),
+            args.neg_channel if bool(args.differential) else 8
+        )
         
         if value is not None:
             # Calculate voltage in millivolts
@@ -339,6 +358,9 @@ Examples:
             print(f"VOLTAGE_MV:{voltage_mv:.3f}")
             print(f"CHANNEL:{args.channel}")
             print(f"GAIN:{args.gain}")
+            print(f"DIFF:{int(bool(args.differential))}")
+            if bool(args.differential):
+                print(f"NEG_CHANNEL:{args.neg_channel}")
             print(f"VREF:{args.vref}")
             
             logger.info(f"Successfully read channel {args.channel}: raw={value}, voltage={voltage_mv:.3f}mV")
