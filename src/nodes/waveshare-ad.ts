@@ -108,7 +108,6 @@ module.exports = function(RED: any) {
                 });
 
                 node.send(msg);
-                node.done();
 
             } catch (error: any) {
                 const errorMessage = error?.message || 'Unknown error';
@@ -129,7 +128,6 @@ module.exports = function(RED: any) {
                 });
 
                 node.send(msg);
-                node.done();
             }
         });
 

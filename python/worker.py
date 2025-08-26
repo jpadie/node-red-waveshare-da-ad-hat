@@ -48,14 +48,20 @@ class SPIResourceManager:
         
     def _setup_gpio(self):
         """Setup GPIO pins"""
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.config.cs_pin, GPIO.OUT)
-        GPIO.setup(self.config.rst_pin, GPIO.OUT)
-        GPIO.setup(self.config.drdy_pin, GPIO.IN)
-        
-        # Initialize pins
-        GPIO.output(self.config.cs_pin, GPIO.HIGH)
-        GPIO.output(self.config.rst_pin, GPIO.HIGH)
+        try:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self.config.cs_pin, GPIO.OUT)
+            GPIO.setup(self.config.rst_pin, GPIO.OUT)
+            GPIO.setup(self.config.drdy_pin, GPIO.IN)
+            
+            # Initialize pins
+            GPIO.output(self.config.cs_pin, GPIO.HIGH)
+            GPIO.output(self.config.rst_pin, GPIO.HIGH)
+            logger.info(f"GPIO initialized: CS={self.config.cs_pin}, RST={self.config.rst_pin}, DRDY={self.config.drdy_pin}")
+        except Exception as e:
+            logger.error(f"Failed to initialize GPIO: {e}")
+            logger.warning("GPIO initialization failed - this may be expected in non-Raspberry Pi environments")
+            # Don't raise - allow the worker to continue without GPIO
         
     def _setup_spi(self):
         """Setup SPI connection"""
