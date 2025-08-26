@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { WorkerRequest, WorkerResponse, WorkerManager as IWorkerManager } from '../../types/node-red.js';
 import { EventEmitter } from 'events';
+import * as path from 'node:path';
 
 export class WorkerManager extends EventEmitter implements IWorkerManager {
     private worker: ChildProcess | null = null;
@@ -58,7 +59,7 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
         try {
             const args = [
                 '-u', // Unbuffered output
-                'python/worker.py'
+                path.join(__dirname, '..', 'python', 'worker.py')
             ];
 
             this.worker = spawn(this.pythonPath, args, {

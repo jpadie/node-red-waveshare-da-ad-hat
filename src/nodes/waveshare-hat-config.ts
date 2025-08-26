@@ -1,9 +1,6 @@
 type: module
 
-import {
-    WorkerManager
-    
- } from "./worker-manager.js";
+import {WorkerManager} from "./worker-manager.js";
 module.exports = function(RED: any) {
     'use strict';
 
