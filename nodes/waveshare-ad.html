@@ -6,7 +6,10 @@
             name: {value: ''},
             hatConfig: {value: ''},
             channel: {value: 0},
+            differential: {value: false},
+            negChannel: {value: 1},
             gain: {value: 1},
+            buffered: {value: false},
             drate: {value: 10.0},
             vref: {value: 5.0}
         },
@@ -33,6 +36,18 @@
             if (this.hatConfig) {
                 hatConfigSelect.val(this.hatConfig);
             }
+
+            // Toggle negative channel visibility based on differential mode
+            function toggleNegChannel() {
+                var isDiff = $('#node-input-differential').is(':checked');
+                if (isDiff) {
+                    $('#neg-channel-row').show();
+                } else {
+                    $('#neg-channel-row').hide();
+                }
+            }
+            $('#node-input-differential').on('change', toggleNegChannel);
+            toggleNegChannel();
         }
     });
 </script>
@@ -63,6 +78,25 @@
             <option value="7">Channel 7</option>
         </select>
     </div>
+
+    <div class="form-row">
+        <label for="node-input-differential"><i class="fa fa-exchange-alt"></i> Differential</label>
+        <input type="checkbox" id="node-input-differential">
+    </div>
+
+    <div class="form-row" id="neg-channel-row">
+        <label for="node-input-negChannel"><i class="fa fa-minus"></i> Negative Channel</label>
+        <select id="node-input-negChannel">
+            <option value="0">Channel 0</option>
+            <option value="1">Channel 1</option>
+            <option value="2">Channel 2</option>
+            <option value="3">Channel 3</option>
+            <option value="4">Channel 4</option>
+            <option value="5">Channel 5</option>
+            <option value="6">Channel 6</option>
+            <option value="7">Channel 7</option>
+        </select>
+    </div>
     
     <div class="form-row">
         <label for="node-input-gain"><i class="fa fa-signal"></i> Gain</label>
@@ -75,6 +109,12 @@
             <option value="32">32x</option>
             <option value="64">64x</option>
         </select>
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-buffered"><i class="fa fa-filter"></i> Buffered</label>
+        <input type="checkbox" id="node-input-buffered">
+        <div class="help-info">Enable ADS1256 input buffer (default off)</div>
     </div>
     
     <div class="form-row">
@@ -101,6 +141,10 @@
         <label for="node-input-vref"><i class="fa fa-bolt"></i> Reference Voltage (V)</label>
         <input type="number" id="node-input-vref" min="0.1" max="10.0" step="0.1" value="5.0">
         <div class="help-info">Set the ADC reference voltage (0.1V to 10.0V)</div>
+    </div>
+
+    <div class="form-tips">
+        <p><strong>Buffered:</strong> When enabled, the ADS1256 input buffer is turned on. Default is off. You can also override via <code>msg.payload.buffered</code> with values like <code>true</code>, <code>1</code>, <code>"true"</code>, or <code>"1"</code>.</p>
     </div>
 </script>
 

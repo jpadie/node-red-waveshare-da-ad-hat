@@ -31,16 +31,34 @@ module.exports = function(RED: any) {
             try {
                 // Get configuration values with payload override priority
                 const channel = parseInt(msg.payload?.channel) || parseInt(config.channel) || 0;
+                const differential = (msg.payload?.differential ?? config.differential) ? true : false;
+                const negChannel = parseInt(msg.payload?.negChannel) || parseInt(config.negChannel) || 1;
                 const gain = parseInt(msg.payload?.gain) || parseInt(config.gain) || 1;
+                const bufferedRaw = (msg.payload?.buffered ?? config.buffered);
+                const buffered = (() => {
+                    if (typeof bufferedRaw === 'boolean') return bufferedRaw;
+                    if (typeof bufferedRaw === 'number') return bufferedRaw !== 0;
+                    if (typeof bufferedRaw === 'string') return ['1', 'true', 'on', 'yes'].includes(bufferedRaw.toLowerCase());
+                    return false;
+                })();
                 const drate = parseFloat(msg.payload?.drate) || parseFloat(config.drate) || 10.0;
                 const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 5.0;
                 
                 // Debug: Log configuration values
-                node.log(`ADC Node Config - channel: ${channel}, gain: ${gain}, drate: ${drate}, vref: ${vref} (from payload: ${!!msg.payload?.channel})`);
+                node.log(`ADC Node Config - channel: ${channel}, ${differential ? `- channel: ${negChannel}, `: ''}gain: ${gain}, buffered: ${buffered}, drate: ${drate}, vref: ${vref} (diff: ${differential})`);
                 
                 // Validate inputs
                 if (channel < 0 || channel > 7) {
                     throw new Error('Channel must be between 0 and 7');
+                }
+
+                if (differential) {
+                    if (negChannel < 0 || negChannel > 7) {
+                        throw new Error('Negative channel must be between 0 and 7');
+                    }
+                    if (negChannel === channel) {
+                        throw new Error('Positive and negative channels must differ');
+                    }
                 }
 
                 if (![1, 2, 4, 8, 16, 32, 64].includes(gain)) {
@@ -57,6 +75,9 @@ module.exports = function(RED: any) {
                     method: 'read_adc',
                     params: {
                         channel: channel,
+                        differential: differential,
+                        negChannel: negChannel,
+                        buffered: buffered,
                         gain: gain,
                         drate: drate
                     }
@@ -66,6 +87,9 @@ module.exports = function(RED: any) {
                 msg.payload = {
                     success: true,
                     channel: result.channel,
+                    negChannel: result.negChannel,
+                    differential: !!result.differential,
+                    buffered: !!result.buffered,
                     raw: result.raw,
                     voltage_mv: result.voltage_mv,
                     gain: result.gain,
@@ -78,7 +102,7 @@ module.exports = function(RED: any) {
                 node.status({
                     fill: 'green',
                     shape: 'dot',
-                    text: `Ch${channel}: ${result.voltage_mv}mV`
+                    text: `${differential ? `Ch${channel}-Ch${negChannel}` : `Ch${channel}`}: ${result.voltage_mv}mV`
                 });
 
                 node.send(msg);

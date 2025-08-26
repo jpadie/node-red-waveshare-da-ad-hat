@@ -139,6 +139,16 @@ class ADS1256Controller:
         self.spi_manager = spi_manager
         self.config = config
         self._setup_adc()
+        # ADS1256 commands/registers (subset)
+        self.CMD_SDATAC = 0x0F  # Stop read continuous data
+        self.CMD_RDATA = 0x01   # Read data
+        self.CMD_WREG  = 0x50   # Write register (OR with reg addr)
+        self.CMD_SYNC  = 0xFC
+        self.CMD_WAKEUP= 0x00
+        self.REG_STATUS= 0x00
+        self.REG_MUX   = 0x01
+        self.REG_ADCON = 0x02
+        self.REG_DRATE = 0x03
         
     def _setup_adc(self):
         """Setup ADC chip"""
@@ -155,7 +165,26 @@ class ADS1256Controller:
             # This can be expanded based on your specific needs
             logger.info("ADC initialized")
             
-    def read_channel(self, channel: int, gain: int = 1, drate: float = 10.0) -> Dict[str, Any]:
+    def _write_register(self, reg: int, value: int):
+        """Write single ADS1256 register"""
+        GPIO.output(self.config.cs_pin, GPIO.LOW)
+        try:
+            # WREG: 0101 rrrr, then number of registers-1, then value
+            self.spi_manager.spi.writebytes([self.CMD_WREG | (reg & 0x0F), 0x00, value & 0xFF])
+            time.sleep(0.0002)
+        finally:
+            GPIO.output(self.config.cs_pin, GPIO.HIGH)
+
+    def _wait_drdy(self, timeout_s: float = 0.1) -> bool:
+        """Wait for DRDY to go low with timeout"""
+        start = time.time()
+        while GPIO.input(self.config.drdy_pin) == GPIO.HIGH:
+            if time.time() - start > timeout_s:
+                return False
+            time.sleep(0.00005)
+        return True
+
+    def read_channel(self, channel: int, gain: int = 1, drate: float = 10.0, differential: bool = False, negChannel: int = 8, buffered: bool = False) -> Dict[str, Any]:
         """Read from ADC channel"""
         if not 0 <= channel <= 7:
             raise ValueError("Channel must be 0-7")
@@ -163,19 +192,42 @@ class ADS1256Controller:
             raise ValueError("Gain must be 1, 2, 4, 8, 16, 32, or 64")
         if drate not in [2.5, 5, 10, 15, 30, 60, 100, 500, 1000, 2000, 3750, 7500, 15000, 30000]:
             raise ValueError("Invalid data rate")
+        if differential:
+            if not 0 <= negChannel <= 7:
+                raise ValueError("Negative channel must be 0-7 in differential mode")
+            if negChannel == channel:
+                raise ValueError("Positive and negative channels must differ")
+        else:
+            # single-ended uses AINCOM which is channel 8 in ADS1256 MUX encoding
+            negChannel = 8
             
         with self.spi_manager.lock:
             self.spi_manager._setup_spi()
             
-            # Wait for data ready
-            while GPIO.input(self.config.drdy_pin) == GPIO.HIGH:
-                time.sleep(0.0001)
+            # Stop continuous read mode and configure MUX for requested channels
+            self._write_register(self.REG_STATUS, 0x02 if buffered else 0x00)  # set buffer bit accordingly
+            # Set MUX: upper nibble = AINp, lower nibble = AINn (8 = AINCOM)
+            mux_value = ((channel & 0x0F) << 4) | (negChannel & 0x0F)
+            self._write_register(self.REG_MUX, mux_value)
+
+            # Small sync/wakeup to start conversion on new channel selection
+            GPIO.output(self.config.cs_pin, GPIO.LOW)
+            try:
+                self.spi_manager.spi.writebytes([self.CMD_SYNC])
+                time.sleep(0.0002)
+                self.spi_manager.spi.writebytes([self.CMD_WAKEUP])
+            finally:
+                GPIO.output(self.config.cs_pin, GPIO.HIGH)
+
+            # Wait for conversion ready
+            if not self._wait_drdy(0.1):
+                raise TimeoutError("ADC DRDY timeout")
                 
-            # Read data (simplified - you may need to implement full ADS1256 protocol)
+            # Read data (simplified)
             GPIO.output(self.config.cs_pin, GPIO.LOW)
             try:
                 # Send read command and read 3 bytes
-                self.spi_manager.spi.writebytes([0x01])  # RDATA command
+                self.spi_manager.spi.writebytes([self.CMD_RDATA])  # RDATA command
                 time.sleep(0.0001)
                 data = self.spi_manager.spi.readbytes(3)
             finally:
@@ -189,6 +241,9 @@ class ADS1256Controller:
             
         return {
             "channel": channel,
+            "negChannel": None if negChannel == 8 else negChannel,
+            "differential": differential,
+            "buffered": buffered,
             "raw": raw_value,
             "voltage_mv": int(voltage_mv),
             "gain": gain,
@@ -256,7 +311,10 @@ class Worker:
                 result = self.adc_controller.read_channel(
                     params["channel"],
                     params.get("gain", 1),
-                    params.get("drate", 10.0)
+                    params.get("drate", 10.0),
+                    params.get("differential", False),
+                    params.get("negChannel", 8),
+                    params.get("buffered", False)
                 )
             elif method == "ping":
                 result = {"status": "ok", "timestamp": time.time()}
