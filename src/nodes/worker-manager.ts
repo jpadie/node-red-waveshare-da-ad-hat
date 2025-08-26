@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from 'child_process';
-import { WorkerRequest, WorkerResponse, WorkerManager as IWorkerManager } from '../types/node-red.js';
+import { WorkerRequest, WorkerResponse, WorkerManager as IWorkerManager } from '../../types/node-red.js';
 import { EventEmitter } from 'events';
 
 export class WorkerManager extends EventEmitter implements IWorkerManager {

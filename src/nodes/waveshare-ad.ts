@@ -1,3 +1,5 @@
+"use module";
+
 module.exports = function(RED: any) {
     'use strict';
 

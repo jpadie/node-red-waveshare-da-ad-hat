@@ -1,4 +1,6 @@
-import { WorkerManager } from '../worker-manager.js';
+"use module";
+
+import { WorkerManager } from './worker-manager.js';
 
 module.exports = function(RED: any) {
     'use strict';
@@ -17,7 +19,7 @@ module.exports = function(RED: any) {
             rstPin: parseInt(config.rstPin) || 18,
             drdyPin: parseInt(config.drdyPin) || 7,
             dacVref: parseFloat(config.dacVref) || 5.0,
-            adcVref: parseFloat(config.adcVref) || 5.0
+            adcVref: parseFloat(config.dacVref) || 5.0
         });
 
         // Store worker manager on the node instance
