@@ -169,7 +169,8 @@ class ADS1256Controller:
     def __init__(self, spi_manager: SPIResourceManager, config: WorkerConfig):
         self.spi_manager = spi_manager
         self.config = config
-        self._setup_adc()
+        self.adc_initialized = False
+        # Don't setup ADC immediately - wait until first use
         # ADS1256 commands/registers (subset)
         self.CMD_SDATAC = 0x0F  # Stop read continuous data
         self.CMD_RDATA = 0x01   # Read data
@@ -182,8 +183,15 @@ class ADS1256Controller:
         self.REG_DRATE = 0x03
         
     def _setup_adc(self):
-        """Setup ADC chip"""
+        """Setup ADC chip - lazy initialization"""
+        if self.adc_initialized:
+            return True
+            
         with self.spi_manager.lock:
+            # Ensure GPIO is initialized first
+            if not self.spi_manager._setup_gpio():
+                raise RuntimeError("GPIO not available - cannot initialize ADC")
+                
             self.spi_manager._setup_spi()
             
             # Reset ADC
@@ -194,8 +202,10 @@ class ADS1256Controller:
             
             # Configure ADC (basic setup)
             # This can be expanded based on your specific needs
+            self.adc_initialized = True
             logger.info("ADC initialized")
-            
+            return True
+
     def _write_register(self, reg: int, value: int):
         """Write single ADS1256 register"""
         # Ensure GPIO is initialized
@@ -241,12 +251,10 @@ class ADS1256Controller:
             negChannel = 8
             
         with self.spi_manager.lock:
-            # Ensure GPIO is initialized
-            if not self.spi_manager._setup_gpio():
-                raise RuntimeError("GPIO not available - cannot control ADC")
+            # Ensure ADC is initialized
+            if not self._setup_adc():
+                raise RuntimeError("Failed to initialize ADC")
                 
-            self.spi_manager._setup_spi()
-            
             # Stop continuous read mode and configure MUX for requested channels
             self._write_register(self.REG_STATUS, 0x02 if buffered else 0x00)  # set buffer bit accordingly
             # Set MUX: upper nibble = AINp, lower nibble = AINn (8 = AINCOM)
