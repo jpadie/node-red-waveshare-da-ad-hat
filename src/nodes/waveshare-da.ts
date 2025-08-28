@@ -78,7 +78,8 @@ module.exports = function(RED: any) {
                     method = 'set_dac_voltage';
                     params = {
                         port: port,
-                        voltage: voltage
+                        voltage: voltage,
+                        vref: vref
                     };
                 } else {
                     // Value mode: input should be raw DAC value (0-65535)
@@ -90,7 +91,8 @@ module.exports = function(RED: any) {
                     method = 'set_dac_value';
                     params = {
                         port: port,
-                        value: value
+                        value: value,
+                        vref: vref
                     };
                 }
 

@@ -352,28 +352,47 @@ class Worker:
             
             if method == "set_dac_value":
                 logger.info(f"DAC set_dac_value: port={params.get('port')}, value={params.get('value')}")
-                result = self.dac_controller.set_dac_value(
-                    params["port"], 
-                    params["value"]
-                )
+                # Temporarily override vref if provided
+                original_vref = self.dac_controller.config.dac_vref
+                try:
+                    if 'vref' in params and isinstance(params['vref'], (int, float)):
+                        self.dac_controller.config.dac_vref = float(params['vref'])
+                    result = self.dac_controller.set_dac_value(
+                        params["port"], 
+                        params["value"]
+                    )
+                finally:
+                    self.dac_controller.config.dac_vref = original_vref
                 logger.info(f"DAC set_dac_value result: {result}")
             elif method == "set_dac_voltage":
                 logger.info(f"DAC set_dac_voltage: port={params.get('port')}, voltage={params.get('voltage')}")
-                result = self.dac_controller.set_dac_voltage(
-                    params["port"], 
-                    params["voltage"]
-                )
+                original_vref = self.dac_controller.config.dac_vref
+                try:
+                    if 'vref' in params and isinstance(params['vref'], (int, float)):
+                        self.dac_controller.config.dac_vref = float(params['vref'])
+                    result = self.dac_controller.set_dac_voltage(
+                        params["port"], 
+                        params["voltage"]
+                    )
+                finally:
+                    self.dac_controller.config.dac_vref = original_vref
                 logger.info(f"DAC set_dac_voltage result: {result}")
             elif method == "read_adc":
                 logger.info(f"ADC read_channel: channel={params.get('channel')}, gain={params.get('gain')}, drate={params.get('drate')}, differential={params.get('differential')}, negChannel={params.get('negChannel')}, buffered={params.get('buffered')}")
-                result = self.adc_controller.read_channel(
-                    params["channel"],
-                    params.get("gain", 1),
-                    params.get("drate", 10.0),
-                    params.get("differential", False),
-                    params.get("negChannel", 8),
-                    params.get("buffered", False)
-                )
+                original_vref = self.adc_controller.config.adc_vref
+                try:
+                    if 'vref' in params and isinstance(params['vref'], (int, float)):
+                        self.adc_controller.config.adc_vref = float(params['vref'])
+                    result = self.adc_controller.read_channel(
+                        params["channel"],
+                        params.get("gain", 1),
+                        params.get("drate", 10.0),
+                        params.get("differential", False),
+                        params.get("negChannel", 8),
+                        params.get("buffered", False)
+                    )
+                finally:
+                    self.adc_controller.config.adc_vref = original_vref
                 logger.info(f"ADC read_channel result: {result}")
             elif method == "ping":
                 logger.info("Ping request received")

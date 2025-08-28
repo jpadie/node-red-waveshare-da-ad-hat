@@ -11,8 +11,8 @@ module.exports = function(RED: any) {
         
         // Initialize worker manager with config
         const workerManager = new WorkerManager({
-            spiBus: parseInt(config.spiBus) || 0,
-            spiDevice: parseInt(config.spiDevice) || 0,
+            spiBus: 0,
+            spiDevice: 0,
             spiSpeed: parseInt(config.spiSpeed) || 1000000,
             csPin: parseInt(config.csPin) || 8,
             rstPin: parseInt(config.rstPin) || 18,
@@ -32,7 +32,7 @@ module.exports = function(RED: any) {
         });
 
         // Log configuration
-        node.log(`Waveshare HAT Config initialized: SPI ${config.spiBus}.${config.spiDevice}, CS:${config.csPin}, RST:${config.rstPin}, DRDY:${config.drdyPin}`);
+        node.log(`Waveshare HAT Config initialized: SPI 0.0, CS:${config.csPin}, RST:${config.rstPin}, DRDY:${config.drdyPin}`);
     }
 
     // Register the config node type

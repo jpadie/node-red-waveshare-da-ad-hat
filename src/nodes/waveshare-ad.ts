@@ -81,7 +81,8 @@ module.exports = function(RED: any) {
                         negChannel: negChannel,
                         buffered: buffered,
                         gain: gain,
-                        drate: drate
+                        drate: drate,
+                        vref: vref
                     }
                 });
 
