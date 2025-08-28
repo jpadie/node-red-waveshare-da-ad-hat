@@ -1,3 +1,5 @@
+type: module
+
 import { spawn, ChildProcess } from 'child_process';
 import { WorkerRequest, WorkerResponse, WorkerManager as IWorkerManager } from '../../types/node-red.js';
 import { EventEmitter } from 'events';
@@ -26,7 +28,7 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
     constructor(config: any) {
         super();
         this.config = config;
-        this.pythonPath = 'python3'; // Default Python path
+        this.pythonPath = '/usr/bin/env python3'; // Use shebang-style path
     }
 
     /**
@@ -63,11 +65,13 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
         }
 
         try {
+            let p = path.join( '..', 'python', 'worker.py');
+            this.log(`path: ${p}`);
             const args = [
                 '-u', // Unbuffered output
-                path.join(__dirname, '..', 'python', 'worker.py')
+                p
             ];
-
+          
             this.worker = spawn(this.pythonPath, args, {
                 stdio: ['pipe', 'pipe', 'pipe'],
                 cwd: process.cwd()
@@ -154,6 +158,7 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
      */
     private handleWorkerResponse(response: WorkerResponse): void {
         const { id, result, error } = response;
+        this.log(`worker response: id: ${id}, result: ${result}, error: ${error}`);
         
         const pending = id ? this.inFlight.get(id) : undefined;
         if (!pending) {

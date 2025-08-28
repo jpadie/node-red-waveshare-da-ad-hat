@@ -58,15 +58,9 @@ module.exports = function(RED: any) {
                 // Get configuration values with payload override priority
                 const port = parseInt(msg.payload?.port) || parseInt(config.port) || 0;
                 const controlMode = msg.payload?.controlMode || config.controlMode || 'value';
-                // Prefer payload.vref, then node's vref; if not provided, fall back to config node's dacVref
-                const vref = (msg.payload?.vref !== undefined && msg.payload?.vref !== null)
-                    ? parseFloat(msg.payload.vref)
-                    : (config.vref !== undefined && config.vref !== null && `${config.vref}`.trim() !== '')
-                        ? parseFloat(config.vref)
-                        : (typeof hatConfig.dacVref === 'number' ? hatConfig.dacVref : 5.0);
                 
                 // Debug: Log configuration values
-                node.log(`DAC Node Config - controlMode: ${controlMode}, vref: ${vref}, port: ${port} (from payload: ${!!msg.payload?.controlMode})`);
+                node.log(`DAC Node Config - controlMode: ${controlMode}, port: ${port} (from payload: ${!!msg.payload?.controlMode})`);
                 
                 // Determine the value to set
                 let value: number;
@@ -76,15 +70,14 @@ module.exports = function(RED: any) {
                 if (controlMode === 'voltage') {
                     // Voltage mode: input should be voltage in volts
                     const voltage = parseFloat(msg.payload) || 0;
-                    if (voltage < 0 || voltage > vref) {
-                        throw new Error(`Voltage must be between 0 and ${vref}V`);
+                    if (voltage < 0 || voltage > 3.3) {
+                        throw new Error(`Voltage must be between 0 and 3.3V`);
                     }
                     
                     method = 'set_dac_voltage';
                     params = {
                         port: port,
-                        voltage: voltage,
-                        vref: vref
+                        voltage: voltage
                     };
                 } else {
                     // Value mode: input should be raw DAC value (0-65535)
@@ -96,8 +89,7 @@ module.exports = function(RED: any) {
                     method = 'set_dac_value';
                     params = {
                         port: port,
-                        value: value,
-                        vref: vref
+                        value: value
                     };
                 }
 

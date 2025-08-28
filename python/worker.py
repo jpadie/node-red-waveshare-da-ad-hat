@@ -27,15 +27,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class WorkerConfig:
-    """Configuration for the worker"""
+    """Configuration for the worker - minimal, hard-coded values"""
+    # Hard-coded pins from working ad.py and da.py
+    adc_cs_pin: int = 22      # ADC CS pin
+    adc_rst_pin: int = 18     # ADC Reset pin  
+    adc_drdy_pin: int = 17    # ADC Data Ready pin
+    dac_cs_pin: int = 23      # DAC CS pin
+    # Hard-coded SPI settings
     spi_bus: int = 0
     spi_device: int = 0
-    spi_speed: int = 1000000
-    cs_pin: int = 8
-    rst_pin: int = 18
-    drdy_pin: int = 7
-    dac_vref: float = 5.0
-    adc_vref: float = 5.0
+    spi_speed: int = 20000     # From working da.py
 
 class SPIResourceManager:
     """Manages SPI and GPIO resources with exclusive access"""
@@ -60,16 +61,23 @@ class SPIResourceManager:
                 pass  # Ignore cleanup errors
                 
             GPIO.setmode(GPIO.BCM)
-            GPIO.setup(self.config.cs_pin, GPIO.OUT)
-            GPIO.setup(self.config.rst_pin, GPIO.OUT)
-            GPIO.setup(self.config.drdy_pin, GPIO.IN)
+            GPIO.setwarnings(False)
             
-            # Initialize pins
-            GPIO.output(self.config.cs_pin, GPIO.HIGH)
-            GPIO.output(self.config.rst_pin, GPIO.HIGH)
+            # Setup ADC pins
+            GPIO.setup(self.config.adc_cs_pin, GPIO.OUT)
+            GPIO.setup(self.config.adc_rst_pin, GPIO.OUT)
+            GPIO.setup(self.config.adc_drdy_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            
+            # Setup DAC pin
+            GPIO.setup(self.config.dac_cs_pin, GPIO.OUT)
+            
+            # Initialize pins to correct states
+            GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)      # CS high = inactive
+            GPIO.output(self.config.adc_rst_pin, GPIO.HIGH)     # Reset high = normal operation
+            GPIO.output(self.config.dac_cs_pin, GPIO.HIGH)      # CS high = inactive
             
             self.gpio_initialized = True
-            logger.info(f"GPIO initialized: CS={self.config.cs_pin}, RST={self.config.rst_pin}, DRDY={self.config.drdy_pin}")
+            logger.info(f"GPIO initialized: ADC_CS={self.config.adc_cs_pin}, ADC_RST={self.config.adc_rst_pin}, ADC_DRDY={self.config.adc_drdy_pin}, DAC_CS={self.config.dac_cs_pin}")
             return True
             
         except Exception as e:
@@ -141,26 +149,26 @@ class DAC8532Controller:
             data = [command, high_byte, low_byte]
             
             # Set CS low, send data, set CS high
-            GPIO.output(self.config.cs_pin, GPIO.LOW)
+            GPIO.output(self.config.dac_cs_pin, GPIO.LOW)
             try:
                 self.spi_manager.spi.writebytes(data)
                 time.sleep(0.001)  # Small delay for stability
             finally:
-                GPIO.output(self.config.cs_pin, GPIO.HIGH)
+                GPIO.output(self.config.dac_cs_pin, GPIO.HIGH)
                 
         return {
             "port": port,
             "value": value,
-            "voltage_mv": int((value / 65535.0) * self.config.dac_vref * 1000)
+            "voltage_mv": int((value / 65535.0) * 3.3 * 1000)  # Using 3.3V as per working da.py
         }
         
     def set_dac_voltage(self, port: int, voltage: float) -> Dict[str, Any]:
         """Set DAC output voltage"""
-        if not 0 <= voltage <= self.config.dac_vref:
-            raise ValueError(f"Voltage must be 0-{self.config.dac_vref}V")
+        if not 0 <= voltage <= 3.3:  # Using 3.3V as per working da.py
+            raise ValueError(f"Voltage must be 0-3.3V")
             
         # Convert voltage to DAC value
-        value = int((voltage / self.config.dac_vref) * 65535)
+        value = int((voltage / 3.3) * 65535)
         return self.set_dac_value(port, value)
 
 class ADS1256Controller:
@@ -194,10 +202,10 @@ class ADS1256Controller:
                 
             self.spi_manager._setup_spi()
             
-            # Reset ADC
-            GPIO.output(self.config.rst_pin, GPIO.LOW)
+            # Reset ADC (from working ad.py)
+            GPIO.output(self.config.adc_rst_pin, GPIO.LOW)
             time.sleep(0.001)
-            GPIO.output(self.config.rst_pin, GPIO.HIGH)
+            GPIO.output(self.config.adc_rst_pin, GPIO.HIGH)
             time.sleep(0.001)
             
             # Configure ADC (basic setup)
@@ -212,13 +220,13 @@ class ADS1256Controller:
         if not self.spi_manager._setup_gpio():
             raise RuntimeError("GPIO not available - cannot control ADC")
             
-        GPIO.output(self.config.cs_pin, GPIO.LOW)
+        GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
         try:
             # WREG: 0101 rrrr, then number of registers-1, then value
             self.spi_manager.spi.writebytes([self.CMD_WREG | (reg & 0x0F), 0x00, value & 0xFF])
             time.sleep(0.0002)
         finally:
-            GPIO.output(self.config.cs_pin, GPIO.HIGH)
+            GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
 
     def _wait_drdy(self, timeout_s: float = 0.1) -> bool:
         """Wait for DRDY to go low with timeout"""
@@ -227,7 +235,7 @@ class ADS1256Controller:
             raise RuntimeError("GPIO not available - cannot read DRDY")
             
         start = time.time()
-        while GPIO.input(self.config.drdy_pin) == GPIO.HIGH:
+        while GPIO.input(self.config.adc_drdy_pin) == GPIO.HIGH:
             if time.time() - start > timeout_s:
                 return False
             time.sleep(0.00005)
@@ -262,33 +270,33 @@ class ADS1256Controller:
             self._write_register(self.REG_MUX, mux_value)
 
             # Small sync/wakeup to start conversion on new channel selection
-            GPIO.output(self.config.cs_pin, GPIO.LOW)
+            GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
             try:
                 self.spi_manager.spi.writebytes([self.CMD_SYNC])
                 time.sleep(0.0002)
                 self.spi_manager.spi.writebytes([self.CMD_WAKEUP])
             finally:
-                GPIO.output(self.config.cs_pin, GPIO.HIGH)
+                GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
 
             # Wait for conversion ready
             if not self._wait_drdy(0.1):
                 raise TimeoutError("ADC DRDY timeout")
                 
             # Read data (simplified)
-            GPIO.output(self.config.cs_pin, GPIO.LOW)
+            GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
             try:
                 # Send read command and read 3 bytes
                 self.spi_manager.spi.writebytes([self.CMD_RDATA])  # RDATA command
                 time.sleep(0.0001)
                 data = self.spi_manager.spi.readbytes(3)
             finally:
-                GPIO.output(self.config.cs_pin, GPIO.HIGH)
+                GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
                 
             # Convert 3 bytes to 24-bit value
             raw_value = (data[0] << 16) | (data[1] << 8) | data[2]
             
             # Convert to voltage (simplified calculation)
-            voltage_mv = (raw_value / 8388607.0) * self.config.adc_vref * 1000
+            voltage_mv = (raw_value / 8388607.0) * 3.3 * 1000  # Using 3.3V as per working da.py
             
         return {
             "channel": channel,
@@ -299,7 +307,7 @@ class ADS1256Controller:
             "voltage_mv": int(voltage_mv),
             "gain": gain,
             "drate": drate,
-            "vref": self.config.adc_vref
+            "vref": 3.3  # Hard-coded as per working da.py
         }
 
 class Worker:
@@ -352,47 +360,28 @@ class Worker:
             
             if method == "set_dac_value":
                 logger.info(f"DAC set_dac_value: port={params.get('port')}, value={params.get('value')}")
-                # Temporarily override vref if provided
-                original_vref = self.dac_controller.config.dac_vref
-                try:
-                    if 'vref' in params and isinstance(params['vref'], (int, float)):
-                        self.dac_controller.config.dac_vref = float(params['vref'])
-                    result = self.dac_controller.set_dac_value(
-                        params["port"], 
-                        params["value"]
-                    )
-                finally:
-                    self.dac_controller.config.dac_vref = original_vref
+                result = self.dac_controller.set_dac_value(
+                    params["port"], 
+                    params["value"]
+                )
                 logger.info(f"DAC set_dac_value result: {result}")
             elif method == "set_dac_voltage":
                 logger.info(f"DAC set_dac_voltage: port={params.get('port')}, voltage={params.get('voltage')}")
-                original_vref = self.dac_controller.config.dac_vref
-                try:
-                    if 'vref' in params and isinstance(params['vref'], (int, float)):
-                        self.dac_controller.config.dac_vref = float(params['vref'])
-                    result = self.dac_controller.set_dac_voltage(
-                        params["port"], 
-                        params["voltage"]
-                    )
-                finally:
-                    self.dac_controller.config.dac_vref = original_vref
+                result = self.dac_controller.set_dac_voltage(
+                    params["port"], 
+                    params["voltage"]
+                )
                 logger.info(f"DAC set_dac_voltage result: {result}")
             elif method == "read_adc":
                 logger.info(f"ADC read_channel: channel={params.get('channel')}, gain={params.get('gain')}, drate={params.get('drate')}, differential={params.get('differential')}, negChannel={params.get('negChannel')}, buffered={params.get('buffered')}")
-                original_vref = self.adc_controller.config.adc_vref
-                try:
-                    if 'vref' in params and isinstance(params['vref'], (int, float)):
-                        self.adc_controller.config.adc_vref = float(params['vref'])
-                    result = self.adc_controller.read_channel(
-                        params["channel"],
-                        params.get("gain", 1),
-                        params.get("drate", 10.0),
-                        params.get("differential", False),
-                        params.get("negChannel", 8),
-                        params.get("buffered", False)
-                    )
-                finally:
-                    self.adc_controller.config.adc_vref = original_vref
+                result = self.adc_controller.read_channel(
+                    params["channel"],
+                    params.get("gain", 1),
+                    params.get("drate", 10.0),
+                    params.get("differential", False),
+                    params.get("negChannel", 8),
+                    params.get("buffered", False)
+                )
                 logger.info(f"ADC read_channel result: {result}")
             elif method == "ping":
                 logger.info("Ping request received")

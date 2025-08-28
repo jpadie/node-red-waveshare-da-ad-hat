@@ -44,15 +44,9 @@ module.exports = function(RED: any) {
                     return false;
                 })();
                 const drate = parseFloat(msg.payload?.drate) || parseFloat(config.drate) || 10.0;
-                // Prefer payload.vref, then node's vref; if not provided, fall back to config node's adcVref
-                const vref = (msg.payload?.vref !== undefined && msg.payload?.vref !== null)
-                    ? parseFloat(msg.payload.vref)
-                    : (config.vref !== undefined && config.vref !== null && `${config.vref}`.trim() !== '')
-                        ? parseFloat(config.vref)
-                        : (typeof hatConfig.adcVref === 'number' ? hatConfig.adcVref : 5.0);
                 
                 // Debug: Log configuration values
-                node.log(`ADC Node Config - channel: ${channel}, ${differential ? `- channel: ${negChannel}, `: ''}gain: ${gain}, buffered: ${buffered}, drate: ${drate}, vref: ${vref} (diff: ${differential})`);
+                node.log(`ADC Node Config - channel: ${channel}, ${differential ? `- channel: ${negChannel}, `: ''}gain: ${gain}, buffered: ${buffered}, drate: ${drate} (diff: ${differential})`);
                 
                 // Validate inputs
                 if (channel < 0 || channel > 7) {
@@ -72,7 +66,7 @@ module.exports = function(RED: any) {
                     throw new Error('Gain must be 1, 2, 4, 8, 16, 32, or 64');
                 }
 
-                if (![2.5, 5, 10, 15, 30, 60, 100, 500, 1000, 2000, 3750, 7500, 15000, 30000].includes(drate)) {
+                if (![2.5, 5, 10, 15, 25, 30, 50, 60, 100, 500, 1000, 2000, 3750, 7500, 15000, 30000].includes(drate)) {
                     throw new Error('Invalid data rate');
                 }
 
@@ -86,8 +80,7 @@ module.exports = function(RED: any) {
                         negChannel: negChannel,
                         buffered: buffered,
                         gain: gain,
-                        drate: drate,
-                        vref: vref
+                        drate: drate
                     }
                 });
 
