@@ -166,7 +166,8 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
             request.resolve(result);
         }
 
-        // Process next request in queue
+        // Mark processing complete and process next request in queue
+        this.isProcessing = false;
         this.processNextRequest();
     }
 

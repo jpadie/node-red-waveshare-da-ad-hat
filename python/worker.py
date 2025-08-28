@@ -348,17 +348,24 @@ class Worker:
             params = request.get("params", {})
             request_id = request.get("id")
             
+            logger.info(f"Handling request: method={method}, params={params}, id={request_id}")
+            
             if method == "set_dac_value":
+                logger.info(f"DAC set_dac_value: port={params.get('port')}, value={params.get('value')}")
                 result = self.dac_controller.set_dac_value(
                     params["port"], 
                     params["value"]
                 )
+                logger.info(f"DAC set_dac_value result: {result}")
             elif method == "set_dac_voltage":
+                logger.info(f"DAC set_dac_voltage: port={params.get('port')}, voltage={params.get('voltage')}")
                 result = self.dac_controller.set_dac_voltage(
                     params["port"], 
                     params["voltage"]
                 )
+                logger.info(f"DAC set_dac_voltage result: {result}")
             elif method == "read_adc":
+                logger.info(f"ADC read_channel: channel={params.get('channel')}, gain={params.get('gain')}, drate={params.get('drate')}, differential={params.get('differential')}, negChannel={params.get('negChannel')}, buffered={params.get('buffered')}")
                 result = self.adc_controller.read_channel(
                     params["channel"],
                     params.get("gain", 1),
@@ -367,11 +374,15 @@ class Worker:
                     params.get("negChannel", 8),
                     params.get("buffered", False)
                 )
+                logger.info(f"ADC read_channel result: {result}")
             elif method == "ping":
+                logger.info("Ping request received")
                 result = {"status": "ok", "timestamp": time.time()}
             else:
+                logger.error(f"Unknown method: {method}")
                 raise ValueError(f"Unknown method: {method}")
                 
+            logger.info(f"Request {request_id} completed successfully")
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
@@ -397,15 +408,21 @@ class Worker:
             try:
                 line = sys.stdin.readline()
                 if not line:
+                    logger.info("No more input, exiting")
                     break
                     
                 line = line.strip()
                 if not line:
+                    logger.debug("Empty line received, continuing")
                     continue
                     
+                logger.info(f"Received line: {line}")
+                
                 try:
                     request = json.loads(line)
+                    logger.info(f"Parsed JSON request: {request}")
                     response = self.handle_request(request)
+                    logger.info(f"Sending response: {response}")
                     print(json.dumps(response), flush=True)
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON: {e}")
