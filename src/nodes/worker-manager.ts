@@ -11,6 +11,12 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
         reject: (error: Error) => void;
         timeout: NodeJS.Timeout;
     }> = [];
+    private inFlight: Map<string, {
+        request: WorkerRequest;
+        resolve: (value: any) => void;
+        reject: (error: Error) => void;
+        timeout: NodeJS.Timeout;
+    }> = new Map();
     private isProcessing = false;
     private correlationId = 0;
     private config: any;
@@ -149,21 +155,19 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
     private handleWorkerResponse(response: WorkerResponse): void {
         const { id, result, error } = response;
         
-        // Find the corresponding request in the queue
-        const requestIndex = this.requestQueue.findIndex(req => req.request.id === id);
-        
-        if (requestIndex === -1) {
+        const pending = id ? this.inFlight.get(id) : undefined;
+        if (!pending) {
             this.log(`Received response for unknown request ID: ${id}`);
             return;
         }
 
-        const request = this.requestQueue.splice(requestIndex, 1)[0];
-        clearTimeout(request.timeout);
+        clearTimeout(pending.timeout);
+        this.inFlight.delete(id!);
 
         if (error) {
-            request.reject(new Error(`Worker error: ${error.message}`));
+            pending.reject(new Error(`Worker error: ${error.message}`));
         } else {
-            request.resolve(result);
+            pending.resolve(result);
         }
 
         // Mark processing complete and process next request in queue
@@ -175,31 +179,39 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
      * Process the next request in the queue
      */
     private processNextRequest(): void {
-        if (this.isProcessing || this.requestQueue.length === 0 || !this.worker) {
+        if (this.isProcessing || (!this.requestQueue.length && this.inFlight.size > 0) || !this.worker) {
+            return;
+        }
+
+        if (this.requestQueue.length === 0) {
+            // Nothing to send
             return;
         }
 
         this.isProcessing = true;
-        const request = this.requestQueue.shift()!;
+        const queueItem = this.requestQueue.shift()!;
 
         try {
-            const requestStr = JSON.stringify(request.request) + '\n';
+            const requestStr = JSON.stringify(queueItem.request) + '\n';
             this.worker.stdin?.write(requestStr);
             
-            // Set timeout for this request
-            request.timeout = setTimeout(() => {
-                const index = this.requestQueue.findIndex(req => req === request);
-                if (index !== -1) {
-                    this.requestQueue.splice(index, 1);
-                    request.reject(new Error('Request timeout'));
-                    this.isProcessing = false;
-                    this.processNextRequest();
+            // Track as in-flight and set timeout for this request
+            const timeout = setTimeout(() => {
+                const inflight = this.inFlight.get(queueItem.request.id);
+                if (inflight) {
+                    this.inFlight.delete(queueItem.request.id);
+                    inflight.reject(new Error('Request timeout'));
                 }
-            }, 10000); // 10 second timeout
+                this.isProcessing = false;
+                this.processNextRequest();
+            }, 10000);
+
+            queueItem.timeout = timeout;
+            this.inFlight.set(queueItem.request.id, queueItem);
 
         } catch (error) {
             this.log(`Failed to send request to worker: ${error}`);
-            request.reject(error as Error);
+            queueItem.reject(error as Error);
             this.isProcessing = false;
             this.processNextRequest();
         }
@@ -265,9 +277,15 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
      * Reject all pending requests
      */
     private rejectAllPending(reason: string): void {
-        for (const request of this.requestQueue) {
-            clearTimeout(request.timeout);
-            request.reject(new Error(reason));
+        for (const [, pending] of this.inFlight) {
+            clearTimeout(pending.timeout);
+            pending.reject(new Error(reason));
+        }
+        this.inFlight.clear();
+
+        for (const queued of this.requestQueue) {
+            clearTimeout(queued.timeout);
+            queued.reject(new Error(reason));
         }
         this.requestQueue = [];
         this.isProcessing = false;
