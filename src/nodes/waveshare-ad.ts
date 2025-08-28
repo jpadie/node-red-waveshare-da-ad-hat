@@ -44,7 +44,12 @@ module.exports = function(RED: any) {
                     return false;
                 })();
                 const drate = parseFloat(msg.payload?.drate) || parseFloat(config.drate) || 10.0;
-                const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 5.0;
+                // Prefer payload.vref, then node's vref; if not provided, fall back to config node's adcVref
+                const vref = (msg.payload?.vref !== undefined && msg.payload?.vref !== null)
+                    ? parseFloat(msg.payload.vref)
+                    : (config.vref !== undefined && config.vref !== null && `${config.vref}`.trim() !== '')
+                        ? parseFloat(config.vref)
+                        : (typeof hatConfig.adcVref === 'number' ? hatConfig.adcVref : 5.0);
                 
                 // Debug: Log configuration values
                 node.log(`ADC Node Config - channel: ${channel}, ${differential ? `- channel: ${negChannel}, `: ''}gain: ${gain}, buffered: ${buffered}, drate: ${drate}, vref: ${vref} (diff: ${differential})`);

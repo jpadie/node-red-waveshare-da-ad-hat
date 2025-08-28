@@ -58,7 +58,12 @@ module.exports = function(RED: any) {
                 // Get configuration values with payload override priority
                 const port = parseInt(msg.payload?.port) || parseInt(config.port) || 0;
                 const controlMode = msg.payload?.controlMode || config.controlMode || 'value';
-                const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 5.0;
+                // Prefer payload.vref, then node's vref; if not provided, fall back to config node's dacVref
+                const vref = (msg.payload?.vref !== undefined && msg.payload?.vref !== null)
+                    ? parseFloat(msg.payload.vref)
+                    : (config.vref !== undefined && config.vref !== null && `${config.vref}`.trim() !== '')
+                        ? parseFloat(config.vref)
+                        : (typeof hatConfig.dacVref === 'number' ? hatConfig.dacVref : 5.0);
                 
                 // Debug: Log configuration values
                 node.log(`DAC Node Config - controlMode: ${controlMode}, vref: ${vref}, port: ${port} (from payload: ${!!msg.payload?.controlMode})`);
