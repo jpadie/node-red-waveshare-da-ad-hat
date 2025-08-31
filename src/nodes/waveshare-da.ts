@@ -43,14 +43,16 @@ module.exports = function(RED: any) {
                 if (controlMode === 'voltage') {
                     // Voltage mode: input should be voltage in volts
                     const voltage = parseFloat(msg.payload) || 0;
-                    if (voltage < 0 || voltage > 3.3) {
-                        throw new Error(`Voltage must be between 0 and 3.3V`);
+                    const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 3.3;
+                    if (voltage < 0 || voltage > vref) {
+                        throw new Error(`Voltage must be between 0 and ${vref}V`);
                     }
                     
                     method = 'set_dac_voltage';
                     params = {
                         port: port,
-                        voltage: voltage
+                        voltage: voltage,
+                        vref: vref
                     };
                 } else {
                     // Value mode: input should be raw DAC value (0-65535)
@@ -79,6 +81,7 @@ module.exports = function(RED: any) {
                     port: result.port,
                     value: result.value,
                     voltage_mv: result.voltage_mv,
+                    vref: result.vref,
                     timestamp: new Date().toISOString()
                 };
 

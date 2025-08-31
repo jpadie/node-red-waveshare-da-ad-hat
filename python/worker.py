@@ -415,7 +415,7 @@ class Worker:
                 return {"jsonrpc": "2.0", "id": _id, "result": ret}
 
             if method == "set_dac_voltage":
-                ret = self.dac.set_voltage(int(params["port"]), float(params["voltage"]))
+                ret = self.dac.set_voltage(int(params["port"]), float(params["voltage"]), float(params.get("vref", 3.3)))
                 return {"jsonrpc": "2.0", "id": _id, "result": ret}
 
             if method == "read_adc":

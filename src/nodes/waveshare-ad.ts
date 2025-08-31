@@ -41,7 +41,7 @@ module.exports = function(RED: any) {
                     return false;
                 })();
                 const drate = parseFloat(msg.payload?.drate) || parseFloat(config.drate) || 10.0;
-                
+                const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 5.0;
                 // Debug: Log configuration values
                 node.log(`ADC Node Config - channel: ${channel}, ${differential ? `- channel: ${negChannel}, `: ''}gain: ${gain}, buffered: ${buffered}, drate: ${drate} (diff: ${differential})`);
                 
@@ -77,7 +77,8 @@ module.exports = function(RED: any) {
                         negChannel: negChannel,
                         buffered: buffered,
                         gain: gain,
-                        drate: drate
+                        drate: drate,
+                        vref: vref
                     }
                 });
 
