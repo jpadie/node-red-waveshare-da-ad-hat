@@ -34,10 +34,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     addRef(): void {
         this.refCount++;
         this.log(`Worker manager reference count: ${this.refCount}`);
-        
-        if (this.refCount === 1) {
-            this.startWorker();
-        }
+        // Don't start worker here - only start when first request comes in
     }
 
     /**
@@ -222,6 +219,11 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
      * Send a request to the worker
      */
     async request<T>(request: Omit<WorkerRequest, 'id'>): Promise<T> {
+        // Start worker lazily on first request
+        if (!this.worker && this.refCount > 0) {
+            this.startWorker();
+        }
+        
         if (!this.worker) {
             throw new Error('Worker not running');
         }
@@ -300,5 +302,5 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     }
 }
 
-// Export singleton instance
+// Export singleton instance - but don't start worker until first use
 export const workerManager = new WorkerManager({});
