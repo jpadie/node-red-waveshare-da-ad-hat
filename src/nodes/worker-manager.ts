@@ -5,7 +5,7 @@ import { WorkerRequest, WorkerResponse, WorkerManager as IWorkerManager } from '
 import { EventEmitter } from 'events';
 import * as path from 'node:path';
 
-export class WorkerManager extends EventEmitter implements IWorkerManager {
+class WorkerManager extends EventEmitter implements IWorkerManager {
     private worker: ChildProcess | null = null;
     private requestQueue: Array<{
         request: WorkerRequest;
@@ -299,3 +299,6 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
         console.log(`[WorkerManager] ${message}`);
     }
 }
+
+// Export singleton instance
+export const workerManager = new WorkerManager({});

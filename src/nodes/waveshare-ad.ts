@@ -1,5 +1,7 @@
 type: module
 
+const { workerManager } = require('./worker-manager.js');
+
 module.exports = function(RED: any) {
     'use strict';
 
@@ -7,20 +9,8 @@ module.exports = function(RED: any) {
         RED.nodes.createNode(this, config);
         
         const node = this;
-        const hatConfig = RED.nodes.getNode(config.hatConfig);
         
-        if (!hatConfig) {
-            node.error('Waveshare HAT Config node not found');
-            return;
-        }
-
-        const workerManager = hatConfig.workerManager;
-        if (!workerManager) {
-            node.error('Worker manager not available');
-            return;
-        }
-
-        // Add reference to worker manager
+        // Use the singleton worker manager directly
         workerManager.addRef();
 
         // Handle node removal

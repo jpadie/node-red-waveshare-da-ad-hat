@@ -1,28 +1,6 @@
 type: module
 
-import type { Node } from 'node-red';
-import { spawn } from 'child_process';
-import { dirname, join } from 'path';
-
-
-
-interface WaveshareDAProperties {
-  name: string;
-  value?: number;
-  voltage?: number;
-  vref: number;
-  controlMode: 'value' | 'voltage';
-  id: string;
-  type: string;
-  z: string;
-  port: number;
-}
-
-interface PythonScriptResult {
-  success: boolean;
-  output?: string;
-  error?: string;
-}
+const { workerManager } = require('./worker-manager.js');
 
 module.exports = function(RED: any) {
     'use strict';
@@ -31,20 +9,8 @@ module.exports = function(RED: any) {
         RED.nodes.createNode(this, config);
         
         const node = this;
-        const hatConfig = RED.nodes.getNode(config.hatConfig);
         
-        if (!hatConfig) {
-            node.error('Waveshare HAT Config node not found');
-            return;
-        }
-
-        const workerManager = hatConfig.workerManager;
-        if (!workerManager) {
-            node.error('Worker manager not available');
-            return;
-        }
-
-        // Add reference to worker manager
+        // Use the singleton worker manager directly
         workerManager.addRef();
 
         // Handle node removal

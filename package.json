@@ -41,7 +41,6 @@
   "node-red": {
     "version": ">=2.0.0",
     "nodes": {
-      "waveshare-hat-config": "nodes/waveshare-hat-config.js",
       "waveshare-da": "nodes/waveshare-da.js",
       "waveshare-ad": "nodes/waveshare-ad.js"
     }
