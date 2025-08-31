@@ -89,11 +89,18 @@ class SPIResourceManager:
     def _setup_spi(self):
         """Setup SPI connection"""
         if self.spi is None:
-            self.spi = spidev.SpiDev()
-            self.spi.open(self.config.spi_bus, self.config.spi_device)
-            self.spi.max_speed_hz = self.config.spi_speed
-            self.spi.mode = 1  # SPI mode 1
-            logger.info("SPI connection established")
+            try:
+                logger.info(f"Creating SPI device for bus {self.config.spi_bus}, device {self.config.spi_device}")
+                self.spi = spidev.SpiDev()
+                logger.info("Opening SPI connection...")
+                self.spi.open(self.config.spi_bus, self.config.spi_device)
+                logger.info("Setting SPI speed and mode...")
+                self.spi.max_speed_hz = self.config.spi_speed
+                self.spi.mode = 1  # SPI mode 1
+                logger.info("SPI connection established")
+            except Exception as e:
+                logger.error(f"SPI setup failed: {e}")
+                raise RuntimeError(f"Failed to setup SPI: {e}")
             
     def acquire(self):
         """Acquire exclusive access to SPI resources"""
@@ -196,17 +203,23 @@ class ADS1256Controller:
             return True
             
         with self.spi_manager.lock:
+            logger.info("Setting up ADC...")
             # Ensure GPIO is initialized first
             if not self.spi_manager._setup_gpio():
                 raise RuntimeError("GPIO not available - cannot initialize ADC")
+            logger.info("GPIO setup complete")
                 
+            logger.info("Setting up SPI...")
             self.spi_manager._setup_spi()
+            logger.info("SPI setup complete")
             
             # Reset ADC (from working ad.py)
+            logger.info("Resetting ADC...")
             GPIO.output(self.config.adc_rst_pin, GPIO.LOW)
             time.sleep(0.001)
             GPIO.output(self.config.adc_rst_pin, GPIO.HIGH)
             time.sleep(0.001)
+            logger.info("ADC reset complete")
             
             # Configure ADC (basic setup)
             # This can be expanded based on your specific needs
