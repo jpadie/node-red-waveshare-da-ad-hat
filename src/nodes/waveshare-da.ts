@@ -10,16 +10,23 @@ module.exports = function(RED: any) {
         
         const node = this;
         
-        // Use the singleton worker manager directly
-        workerManager.addRef();
-
         // Handle node removal
         node.on('close', () => {
-            workerManager.removeRef();
+            // Only remove ref if we added one
+            if (node.hasRef) {
+                workerManager.removeRef();
+                node.hasRef = false;
+            }
         });
 
         // Handle incoming messages
         node.on('input', async function(msg: any) {
+            // Add reference to worker manager on first use
+            if (!node.hasRef) {
+                workerManager.addRef();
+                node.hasRef = true;
+            }
+            
             try {
                 // Get configuration values with payload override priority
                 const port = parseInt(msg.payload?.port) || parseInt(config.port) || 0;
