@@ -235,7 +235,7 @@ class ADS1256Controller:
             raise RuntimeError("GPIO not available - cannot read DRDY")
             
         start = time.time()
-        while GPIO.input(self.config.adc_drdy_pin) == GPIO.HIGH:
+        while GPIO.input(self.config.adc_drdy_pin) == GPIO.HIGH:  # Wait for DRDY to go LOW (data ready)
             if time.time() - start > timeout_s:
                 return False
             time.sleep(0.00005)
@@ -269,7 +269,14 @@ class ADS1256Controller:
             mux_value = ((channel & 0x0F) << 4) | (negChannel & 0x0F)
             self._write_register(self.REG_MUX, mux_value)
 
-            # Small sync/wakeup to start conversion on new channel selection
+            # Wait for initial data ready
+            logger.info("Waiting for initial DRDY...")
+            if not self._wait_drdy(0.1):
+                raise TimeoutError("ADC initial DRDY timeout")
+            logger.info("Initial DRDY received")
+                
+            # Start conversion with sync/wakeup
+            logger.info("Starting conversion with SYNC/WAKEUP...")
             GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
             try:
                 self.spi_manager.spi.writebytes([self.CMD_SYNC])
@@ -277,26 +284,33 @@ class ADS1256Controller:
                 self.spi_manager.spi.writebytes([self.CMD_WAKEUP])
             finally:
                 GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
+            logger.info("SYNC/WAKEUP commands sent")
 
-            # Wait for conversion ready
+            # Wait for conversion to complete
+            logger.info("Waiting for conversion DRDY...")
             if not self._wait_drdy(0.1):
-                raise TimeoutError("ADC DRDY timeout")
+                raise TimeoutError("ADC conversion DRDY timeout")
+            logger.info("Conversion DRDY received")
                 
             # Read data (simplified)
+            logger.info("Reading ADC data...")
             GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
             try:
                 # Send read command and read 3 bytes
                 self.spi_manager.spi.writebytes([self.CMD_RDATA])  # RDATA command
                 time.sleep(0.0001)
                 data = self.spi_manager.spi.readbytes(3)
+                logger.info(f"Read 3 bytes: {[hex(b) for b in data]}")
             finally:
                 GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
                 
             # Convert 3 bytes to 24-bit value
             raw_value = (data[0] << 16) | (data[1] << 8) | data[2]
+            logger.info(f"Raw value: {raw_value}")
             
             # Convert to voltage (simplified calculation)
             voltage_mv = (raw_value / 8388607.0) * 3.3 * 1000  # Using 3.3V as per working da.py
+            logger.info(f"Voltage: {voltage_mv} mV")
             
         return {
             "channel": channel,

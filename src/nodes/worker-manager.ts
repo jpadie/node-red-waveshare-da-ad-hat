@@ -23,12 +23,9 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
     private correlationId = 0;
     private config: any;
     private refCount = 0;
-    private pythonPath: string;
-
     constructor(config: any) {
         super();
         this.config = config;
-        this.pythonPath = '/usr/bin/env python3'; // Use shebang-style path
     }
 
     /**
@@ -65,16 +62,15 @@ export class WorkerManager extends EventEmitter implements IWorkerManager {
         }
 
         try {
-            let p = path.join( '..', 'python', 'worker.py');
+            let p = path.join( __dirname, '..', 'python', 'worker.py');
             this.log(`path: ${p}`);
             const args = [
                 '-u', // Unbuffered output
                 p
             ];
           
-            this.worker = spawn(this.pythonPath, args, {
-                stdio: ['pipe', 'pipe', 'pipe'],
-                cwd: process.cwd()
+            this.worker = spawn('python3', args, {
+                stdio: ['pipe', 'pipe', 'pipe']
             });
 
             this.log('Python worker started');
