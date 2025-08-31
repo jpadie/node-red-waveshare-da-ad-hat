@@ -11,18 +11,22 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         request: WorkerRequest;
         resolve: (value: any) => void;
         reject: (error: Error) => void;
-        timeout: NodeJS.Timeout;
+        timeout?: NodeJS.Timeout; // (6) optional; no placeholder timer
     }> = [];
     private inFlight: Map<string, {
         request: WorkerRequest;
         resolve: (value: any) => void;
         reject: (error: Error) => void;
-        timeout: NodeJS.Timeout;
+        timeout?: NodeJS.Timeout;
     }> = new Map();
-    private isProcessing = false;
+    private isProcessing = false; // (10) keep strictly serial for SPI
     private correlationId = 0;
     private config: any;
     private refCount = 0;
+
+    // (5) stdout line buffer to handle chunking
+    private stdoutBuffer = '';
+
     constructor(config: any) {
         super();
         this.config = config;
@@ -33,7 +37,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
      */
     addRef(): void {
         this.refCount++;
-        this.log(`Worker manager reference count: ${this.refCount}`);
+        this.debug(`Worker manager reference count: ${this.refCount}`);
         // Don't start worker here - only start when first request comes in
     }
 
@@ -42,8 +46,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
      */
     removeRef(): void {
         this.refCount--;
-        this.log(`Worker manager reference count: ${this.refCount}`);
-        
+        this.debug(`Worker manager reference count: ${this.refCount}`);
         if (this.refCount <= 0) {
             this.stopWorker();
         }
@@ -54,32 +57,30 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
      */
     private startWorker(): void {
         if (this.worker) {
-            this.log('Worker already running');
+            this.debug('Worker already running');
             return;
         }
 
         try {
-            let p = path.join( __dirname, '..', 'python', 'worker.py');
-            this.log(`path: ${p}`);
-            const args = [
-                '-u', // Unbuffered output
-                p
-            ];
-          
+            const p = path.join(__dirname, '..', 'python', 'worker.py');
+            this.debug(`path: ${p}`);
+            const args = ['-u', p];
+
             this.worker = spawn('python3', args, {
                 stdio: ['pipe', 'pipe', 'pipe']
+                // (2) cwd intentionally left default per user note
             });
 
             this.log('Python worker started');
 
-            // Handle stdout (responses from worker)
+            // Handle stdout (responses from worker) with buffering (5)
             this.worker.stdout?.on('data', (data) => {
                 this.handleWorkerOutput(data.toString());
             });
 
             // Handle stderr (logging from worker)
             this.worker.stderr?.on('data', (data) => {
-                this.log(`Worker stderr: ${data.toString().trim()}`);
+                this.debug(`Worker stderr: ${data.toString().trim()}`);
             });
 
             // Handle worker exit
@@ -87,7 +88,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
                 this.log(`Worker exited with code ${code}, signal ${signal}`);
                 this.worker = null;
                 this.emit('workerExit', { code, signal });
-                
+
                 // Reject all pending requests
                 this.rejectAllPending('Worker process exited');
             });
@@ -97,7 +98,6 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
                 this.emit('workerError', error);
                 this.rejectAllPending(`Worker error: ${error.message}`);
             });
-
         } catch (error) {
             this.log(`Failed to start worker: ${error}`);
             throw error;
@@ -106,22 +106,22 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
 
     /**
      * Stop the Python worker process
+     * (3) Don't null the ref before we may force-kill
      */
     private stopWorker(): void {
-        if (!this.worker) {
-            return;
-        }
+        const proc = this.worker;
+        if (!proc) return;
 
         this.log('Stopping Python worker');
-        
+
         // Send SIGTERM first
-        this.worker.kill('SIGTERM');
-        
+        proc.kill('SIGTERM');
+
         // Force kill after 2 seconds if still running
         setTimeout(() => {
-            if (this.worker && !this.worker.killed) {
+            if (proc.exitCode === null) {
                 this.log('Force killing worker');
-                this.worker.kill('SIGKILL');
+                proc.kill('SIGKILL');
             }
         }, 2000);
 
@@ -129,19 +129,21 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     }
 
     /**
-     * Handle output from the Python worker
+     * Handle output from the Python worker (5)
      */
-    private handleWorkerOutput(output: string): void {
-        const lines = output.trim().split('\n');
-        
+    private handleWorkerOutput(chunk: string): void {
+        this.stdoutBuffer += chunk;
+        const lines = this.stdoutBuffer.split('\n');
+        this.stdoutBuffer = lines.pop() ?? '';
+
         for (const line of lines) {
-            if (!line.trim()) continue;
-            
+            const trimmed = line.trim();
+            if (!trimmed) continue;
             try {
-                const response: WorkerResponse = JSON.parse(line);
+                const response: WorkerResponse = JSON.parse(trimmed);
                 this.handleWorkerResponse(response);
             } catch (error) {
-                this.log(`Failed to parse worker response: ${line}`);
+                this.debug(`Failed to parse worker response: ${(error as Error)?.message ?? String(error)} | line=${trimmed}`);
             }
         }
     }
@@ -151,19 +153,21 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
      */
     private handleWorkerResponse(response: WorkerResponse): void {
         const { id, result, error } = response;
-        this.log(`worker response: id: ${id}, result: ${result}, error: ${error}`);
-        
+        this.debug(`worker response: id=${id}, hasResult=${result !== undefined}, hasError=${!!error}`);
+
         const pending = id ? this.inFlight.get(id) : undefined;
         if (!pending) {
-            this.log(`Received response for unknown request ID: ${id}`);
+            this.debug(`Received response for unknown request ID: ${id}`);
             return;
         }
 
-        clearTimeout(pending.timeout);
+        if (pending.timeout) clearTimeout(pending.timeout);
         this.inFlight.delete(id!);
 
         if (error) {
-            pending.reject(new Error(`Worker error: ${error.message}`));
+            // (8) user controls error format; pass through message if present
+            const msg = (error as any)?.message ?? String(error);
+            pending.reject(new Error(`Worker error: ${msg}`));
         } else {
             pending.resolve(result);
         }
@@ -186,13 +190,13 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             return;
         }
 
-        this.isProcessing = true;
+        this.isProcessing = true; // (10) serial by design for SPI
         const queueItem = this.requestQueue.shift()!;
 
         try {
             const requestStr = JSON.stringify(queueItem.request) + '\n';
-            this.worker.stdin?.write(requestStr);
-            
+            const wrote = this.worker.stdin!.write(requestStr); // (9) check backpressure
+
             // Track as in-flight and set timeout for this request
             const timeout = setTimeout(() => {
                 const inflight = this.inFlight.get(queueItem.request.id);
@@ -207,6 +211,12 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             queueItem.timeout = timeout;
             this.inFlight.set(queueItem.request.id, queueItem);
 
+            if (!wrote) {
+                this.worker.stdin!.once('drain', () => {
+                    // nothing extra; already marked in-flight & timed
+                    this.debug('stdin drained after backpressure');
+                });
+            }
         } catch (error) {
             this.log(`Failed to send request to worker: ${error}`);
             queueItem.reject(error as Error);
@@ -217,13 +227,12 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
 
     /**
      * Send a request to the worker
+     * (4) Start worker unconditionally if not running; refCount is lifecycle, not a hard gate
      */
     async request<T>(request: Omit<WorkerRequest, 'id'>): Promise<T> {
-        // Start worker lazily on first request
-        if (!this.worker && this.refCount > 0) {
+        if (!this.worker) {
             this.startWorker();
         }
-        
         if (!this.worker) {
             throw new Error('Worker not running');
         }
@@ -237,9 +246,8 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             const queueItem = {
                 request: fullRequest,
                 resolve,
-                reject,
-                timeout: setTimeout(() => {}) // Will be set properly in processNextRequest
-            };
+                reject
+            } as typeof this.requestQueue[number];
 
             this.requestQueue.push(queueItem);
             this.processNextRequest();
@@ -264,9 +272,10 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
 
     /**
      * Check if the worker is connected
+     * (7) Use exitCode instead of .killed
      */
     isConnected(): boolean {
-        return this.worker !== null && !this.worker.killed;
+        return !!(this.worker && this.worker.exitCode === null);
     }
 
     /**
@@ -281,13 +290,13 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
      */
     private rejectAllPending(reason: string): void {
         for (const [, pending] of this.inFlight) {
-            clearTimeout(pending.timeout);
+            if (pending.timeout) clearTimeout(pending.timeout);
             pending.reject(new Error(reason));
         }
         this.inFlight.clear();
 
         for (const queued of this.requestQueue) {
-            clearTimeout(queued.timeout);
+            if (queued.timeout) clearTimeout(queued.timeout);
             queued.reject(new Error(reason));
         }
         this.requestQueue = [];
@@ -295,10 +304,15 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     }
 
     /**
-     * Log a message
+     * Log a message (11) separate log levels
      */
     private log(message: string): void {
         console.log(`[WorkerManager] ${message}`);
+    }
+
+    private debug(message: string): void {
+        // Toggle with env or config flag if desired
+        console.debug(`[WorkerManager:debug] ${message}`);
     }
 }
 
