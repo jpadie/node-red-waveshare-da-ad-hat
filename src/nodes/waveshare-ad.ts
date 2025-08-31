@@ -40,8 +40,9 @@ module.exports = function(RED: any) {
                     if (typeof bufferedRaw === 'string') return ['1', 'true', 'on', 'yes'].includes(bufferedRaw.toLowerCase());
                     return false;
                 })();
-                const drate = parseFloat(msg.payload?.drate) || parseFloat(config.drate) || 10.0;
-                const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 5.0;
+                // Accept overrides from payload or top-level msg, then fall back to node config
+                const drate = parseFloat((msg.payload && msg.payload.drate) ?? (msg as any).drate) || parseFloat(config.drate) || 10.0;
+                const vref = parseFloat((msg.payload && msg.payload.vref) ?? (msg as any).vref) || parseFloat(config.vref) || 5.0;
                 // Debug: Log configuration values
                 node.log(`ADC Node Config - channel: ${channel}, ${differential ? `- channel: ${negChannel}, `: ''}gain: ${gain}, buffered: ${buffered}, drate: ${drate} (diff: ${differential})`);
                 

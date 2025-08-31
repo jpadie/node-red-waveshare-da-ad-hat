@@ -42,8 +42,9 @@ module.exports = function(RED: any) {
 
                 if (controlMode === 'voltage') {
                     // Voltage mode: input should be voltage in volts
-                    const voltage = parseFloat(msg.payload) || 0;
-                    const vref = parseFloat(msg.payload?.vref) || parseFloat(config.vref) || 3.3;
+                    // Accept either a numeric payload, or payload.voltage, or top-level msg.voltage
+                    const voltage = parseFloat((typeof msg.payload === 'number' ? msg.payload : (msg.payload && msg.payload.voltage)) ?? (msg as any).voltage) || 0;
+                    const vref = parseFloat((msg.payload && msg.payload.vref) ?? (msg as any).vref) || parseFloat(config.vref) || 3.3;
                     if (voltage < 0 || voltage > vref) {
                         throw new Error(`Voltage must be between 0 and ${vref}V`);
                     }
@@ -56,7 +57,9 @@ module.exports = function(RED: any) {
                     };
                 } else {
                     // Value mode: input should be raw DAC value (0-65535)
-                    value = parseInt(msg.payload) || 0;
+                    // Accept either a numeric payload, or payload.value, or top-level msg.value
+                    const rawVal = (typeof msg.payload === 'number' ? msg.payload : (msg.payload && msg.payload.value)) ?? (msg as any).value;
+                    value = parseInt(rawVal) || 0;
                     if (value < 0 || value > 65535) {
                         throw new Error('DAC value must be between 0 and 65535');
                     }
@@ -89,7 +92,7 @@ module.exports = function(RED: any) {
                 node.status({
                     fill: 'green',
                     shape: 'dot',
-                    text: `${method === 'set_dac_voltage' ? 'V' : 'Raw'}: ${result.voltage_mv}mV`
+                    text: method === 'set_dac_voltage' ? `V: ${result.voltage_mv ?? ''}mV` : `Raw: ${result.value}`
                 });
 
                 node.send(msg);
