@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Waveshare DA-AD HAT Worker
-Handles JSON-RPC requests over stdio for DAC and ADC operations.
-Manages SPI access exclusively and provides clean resource management.
+Waveshare DA-AD HAT Worker (JSON-RPC over stdio)
+- ADC (ADS1256) flow aligned to the working one-shot ad.py paradigm
+- Robust watchdog (doesn't kill mid-request), per-request timeout, clear stdout replies
+- Manual GPIO CS with spidev.no_cs=True to avoid kernel CE contention
 """
+
+from __future__ import annotations
 
 import json
 import sys
@@ -11,488 +14,472 @@ import time
 import logging
 import signal
 import threading
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
-from queue import Queue
+from typing import Any, Dict, Optional, Tuple
+
 import spidev
 import RPi.GPIO as GPIO
 
-# Configure logging
+# -----------------------------
+# Logging to STDERR (Node reads responses from STDOUT)
+# -----------------------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stderr)]
 )
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
+# -----------------------------
+# Config / Constants
+# -----------------------------
 @dataclass
 class WorkerConfig:
-    """Configuration for the worker - minimal, hard-coded values"""
-    # Hard-coded pins from working ad.py and da.py
-    adc_cs_pin: int = 22      # ADC CS pin
-    adc_rst_pin: int = 18     # ADC Reset pin  
-    adc_drdy_pin: int = 17    # ADC Data Ready pin
-    dac_cs_pin: int = 23      # DAC CS pin
-    # Hard-coded SPI settings
+    # GPIO (BCM numbering) as per Waveshare High-Precision AD/DA HAT silk
+    adc_cs_pin: int = 22
+    adc_rst_pin: int = 18
+    adc_drdy_pin: int = 17
+    dac_cs_pin: int = 23
+
     spi_bus: int = 0
-    spi_device: int = 0
-    spi_speed: int = 20000     # From working da.py
+    spi_dev: int = 0
+    spi_speed_hz: int = 1_000_000  # match ad.py (1 MHz)
+
+    # Watchdog & timeouts
+    idle_shutdown_s: int = 300      # generous; worker stays alive while busy
+    request_timeout_s: int = 10     # per-request guard
+
 
 class SPIResourceManager:
-    """Manages SPI and GPIO resources with exclusive access"""
-    
-    def __init__(self, config: WorkerConfig):
-        self.config = config
-        self.spi = None
-        self.gpio_initialized = False
+    def __init__(self, cfg: WorkerConfig):
+        self.cfg = cfg
+        self.spi: Optional[spidev.SpiDev] = None
+        self.gpio_ready = False
         self.lock = threading.Lock()
-        # Don't setup GPIO immediately - wait until first use
-        
-    def _setup_gpio(self):
-        """Setup GPIO pins - lazy initialization"""
-        if self.gpio_initialized:
+
+    # Lazily set up GPIO on first use
+    def _setup_gpio(self) -> bool:
+        if self.gpio_ready:
             return True
-            
         try:
-            # First, try to cleanup any existing GPIO state
             try:
                 GPIO.cleanup()
-            except:
-                pass  # Ignore cleanup errors
-                
+            except Exception:
+                pass
             GPIO.setmode(GPIO.BCM)
             GPIO.setwarnings(False)
-            
-            # Setup ADC pins
-            GPIO.setup(self.config.adc_cs_pin, GPIO.OUT)
-            GPIO.setup(self.config.adc_rst_pin, GPIO.OUT)
-            GPIO.setup(self.config.adc_drdy_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            
-            # Setup DAC pin
-            GPIO.setup(self.config.dac_cs_pin, GPIO.OUT)
-            
-            # Initialize pins to correct states
-            GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)      # CS high = inactive
-            GPIO.output(self.config.adc_rst_pin, GPIO.HIGH)     # Reset high = normal operation
-            GPIO.output(self.config.dac_cs_pin, GPIO.HIGH)      # CS high = inactive
-            
-            self.gpio_initialized = True
-            logger.info(f"GPIO initialized: ADC_CS={self.config.adc_cs_pin}, ADC_RST={self.config.adc_rst_pin}, ADC_DRDY={self.config.adc_drdy_pin}, DAC_CS={self.config.dac_cs_pin}")
+
+            # ADC pins
+            GPIO.setup(self.cfg.adc_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+            GPIO.setup(self.cfg.adc_rst_pin, GPIO.OUT, initial=GPIO.HIGH)
+            GPIO.setup(self.cfg.adc_drdy_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+            # DAC pin
+            GPIO.setup(self.cfg.dac_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+
+            self.gpio_ready = True
+            log.info(
+                f"GPIO init OK (ADC_CS={self.cfg.adc_cs_pin}, ADC_RST={self.cfg.adc_rst_pin}, "
+                f"DRDY={self.cfg.adc_drdy_pin}, DAC_CS={self.cfg.dac_cs_pin})"
+            )
             return True
-            
         except Exception as e:
-            logger.error(f"Failed to initialize GPIO: {e}")
-            logger.warning("GPIO initialization failed - this may be expected in non-Raspberry Pi environments")
-            self.gpio_initialized = False
+            log.error(f"GPIO init failed: {e}")
+            self.gpio_ready = False
             return False
-        
-    def _setup_spi(self):
-        """Setup SPI connection"""
+
+    # Lazily set up SPI on first use
+    def _setup_spi(self) -> None:
+        if self.spi is not None:
+            return
+        try:
+            s = spidev.SpiDev()
+            s.open(self.cfg.spi_bus, self.cfg.spi_dev)
+            # Default to ADC-friendly speed; individual ops may override
+            s.max_speed_hz = self.cfg.spi_speed_hz
+            s.mode = 0b01
+            s.lsbfirst = False
+            s.cshigh = False
+            s.no_cs = True  # we drive CS on GPIO to avoid CE0 auto toggling
+            self.spi = s
+            log.info(
+                f"SPI open bus={self.cfg.spi_bus}, dev={self.cfg.spi_dev}, "
+                f"speed={self.cfg.spi_speed_hz}Hz, mode=1, no_cs=True"
+            )
+        except Exception as e:
+            log.error(f"SPI open failed: {e}")
+            raise
+
+    def set_speed(self, hz: int) -> None:
+        """Set SPI clock for the next operation."""
         if self.spi is None:
-            try:
-                logger.info(f"Creating SPI device for bus {self.config.spi_bus}, device {self.config.spi_device}")
-                self.spi = spidev.SpiDev()
-                logger.info("Opening SPI connection...")
-                self.spi.open(self.config.spi_bus, self.config.spi_device)
-                logger.info("Setting SPI speed and mode...")
-                self.spi.max_speed_hz = self.config.spi_speed
-                self.spi.mode = 1  # SPI mode 1
-                logger.info("SPI connection established")
-            except Exception as e:
-                logger.error(f"SPI setup failed: {e}")
-                raise RuntimeError(f"Failed to setup SPI: {e}")
-            
-    def acquire(self):
-        """Acquire exclusive access to SPI resources"""
-        return self.lock.acquire()
-        
-    def release(self):
-        """Release exclusive access to SPI resources"""
-        self.lock.release()
-        
-    def cleanup(self):
-        """Clean up all resources"""
+            self._setup_spi()
+        try:
+            self.spi.max_speed_hz = hz
+        except Exception as e:
+            log.warning(f"Failed to set SPI speed to {hz}: {e}")
+
+    def cleanup(self) -> None:
         with self.lock:
-            if self.spi:
-                self.spi.close()
+            if self.spi is not None:
+                try:
+                    self.spi.close()
+                except Exception:
+                    pass
                 self.spi = None
-            if self.gpio_initialized:
+            if self.gpio_ready:
                 try:
                     GPIO.cleanup()
-                    self.gpio_initialized = False
-                    logger.info("GPIO resources cleaned up")
-                except Exception as e:
-                    logger.warning(f"Error during GPIO cleanup: {e}")
-            logger.info("SPI and GPIO resources cleaned up")
+                except Exception:
+                    pass
+                self.gpio_ready = False
+            log.info("SPI/GPIO cleaned up")
 
-class DAC8532Controller:
-    """Controller for DAC8532 chip"""
-    
-    def __init__(self, spi_manager: SPIResourceManager, config: WorkerConfig):
-        self.spi_manager = spi_manager
-        self.config = config
-        
-    def set_dac_value(self, port: int, value: int) -> Dict[str, Any]:
-        """Set DAC output value (0-65535)"""
-        if not 0 <= port <= 1:
-            raise ValueError("Port must be 0 or 1")
-        if not 0 <= value <= 65535:
-            raise ValueError("Value must be 0-65535")
-            
-        with self.spi_manager.lock:
-            # Ensure GPIO is initialized
-            if not self.spi_manager._setup_gpio():
-                raise RuntimeError("GPIO not available - cannot control DAC")
-                
-            self.spi_manager._setup_spi()
-            
-            # DAC8532 commands: 0x30 for DAC0, 0x34 for DAC1
-            command = 0x30 if port == 0 else 0x34
-            
-            # Prepare data: command + high byte + low byte
-            high_byte = (value >> 8) & 0xFF
-            low_byte = value & 0xFF
-            
-            data = [command, high_byte, low_byte]
-            
-            # Set CS low, send data, set CS high
-            GPIO.output(self.config.dac_cs_pin, GPIO.LOW)
-            try:
-                self.spi_manager.spi.writebytes(data)
-                time.sleep(0.001)  # Small delay for stability
-            finally:
-                GPIO.output(self.config.dac_cs_pin, GPIO.HIGH)
-                
-        return {
-            "port": port,
-            "value": value,
-            "voltage_mv": int((value / 65535.0) * 3.3 * 1000)  # Using 3.3V as per working da.py
-        }
-        
-    def set_dac_voltage(self, port: int, voltage: float) -> Dict[str, Any]:
-        """Set DAC output voltage"""
-        if not 0 <= voltage <= 3.3:  # Using 3.3V as per working da.py
-            raise ValueError(f"Voltage must be 0-3.3V")
-            
-        # Convert voltage to DAC value
-        value = int((voltage / 3.3) * 65535)
-        return self.set_dac_value(port, value)
 
-class ADS1256Controller:
-    """Controller for ADS1256 chip"""
-    
-    def __init__(self, spi_manager: SPIResourceManager, config: WorkerConfig):
-        self.spi_manager = spi_manager
-        self.config = config
-        self.adc_initialized = False
-        # Don't setup ADC immediately - wait until first use
-        # ADS1256 commands/registers (subset)
-        self.CMD_SDATAC = 0x0F  # Stop read continuous data
-        self.CMD_RDATA = 0x01   # Read data
-        self.CMD_WREG  = 0x50   # Write register (OR with reg addr)
-        self.CMD_SYNC  = 0xFC
-        self.CMD_WAKEUP= 0x00
-        self.REG_STATUS= 0x00
-        self.REG_MUX   = 0x01
-        self.REG_ADCON = 0x02
-        self.REG_DRATE = 0x03
-        
-    def _setup_adc(self):
-        """Setup ADC chip - lazy initialization"""
-        if self.adc_initialized:
-            return True
-            
-        with self.spi_manager.lock:
-            logger.info("Setting up ADC...")
-            # Ensure GPIO is initialized first
-            if not self.spi_manager._setup_gpio():
-                raise RuntimeError("GPIO not available - cannot initialize ADC")
-            logger.info("GPIO setup complete")
-                
-            logger.info("Setting up SPI...")
-            self.spi_manager._setup_spi()
-            logger.info("SPI setup complete")
-            
-            # Reset ADC (from working ad.py)
-            logger.info("Resetting ADC...")
-            GPIO.output(self.config.adc_rst_pin, GPIO.LOW)
-            time.sleep(0.001)
-            GPIO.output(self.config.adc_rst_pin, GPIO.HIGH)
-            time.sleep(0.001)
-            logger.info("ADC reset complete")
-            
-            # Configure ADC (basic setup)
-            # This can be expanded based on your specific needs
-            self.adc_initialized = True
-            logger.info("ADC initialized")
-            return True
+class DAC8532:
+    def __init__(self, rm: SPIResourceManager, cfg: WorkerConfig):
+        self.rm = rm
+        self.cfg = cfg
 
-    def _write_register(self, reg: int, value: int):
-        """Write single ADS1256 register"""
-        # Ensure GPIO is initialized
-        if not self.spi_manager._setup_gpio():
-            raise RuntimeError("GPIO not available - cannot control ADC")
-            
-        GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
+    def set_value(self, port: int, value: int) -> Dict[str, Any]:
+        if port not in (0, 1):
+            raise ValueError("port must be 0 or 1")
+        if not (0 <= value <= 0xFFFF):
+            raise ValueError("value must be 0..65535")
+        if not self.rm._setup_gpio():
+            raise RuntimeError("GPIO unavailable")
+        self.rm._setup_spi()
+
+        # Match working da.py: 20kHz, mode=1
+        
+        cmd = 0x30 if port == 0 else 0x34
+        hi = (value >> 8) & 0xFF
+        lo = value & 0xFF
+        GPIO.output(self.cfg.dac_cs_pin, GPIO.LOW)
         try:
-            # WREG: 0101 rrrr, then number of registers-1, then value
-            self.spi_manager.spi.writebytes([self.CMD_WREG | (reg & 0x0F), 0x00, value & 0xFF])
+            self.rm.spi.writebytes([cmd, hi, lo])
+        finally:
+            GPIO.output(self.cfg.dac_cs_pin, GPIO.HIGH)
+        return {"port": port, "value": value}
+
+    def set_voltage(self, port: int, voltage: float, vref: float = 3.3) -> Dict[str, Any]:
+        if not (0.0 <= voltage <= vref):
+            raise ValueError(f"voltage must be 0..{vref}V")
+        value = int(round((voltage / vref) * 65535))
+        out = self.set_value(port, value)
+        out["voltage_mv"] = int(voltage * 1000)
+        out["vref"] = vref
+        return out
+
+
+class ADS1256:
+    # Commands
+    CMD_SDATAC = 0x0F
+    CMD_RDATA  = 0x01
+    CMD_WREG   = 0x50
+    CMD_SYNC   = 0xFC
+    CMD_WAKEUP = 0x00
+
+    # Registers
+    REG_STATUS = 0x00
+    REG_MUX    = 0x01
+    REG_ADCON  = 0x02
+    REG_DRATE  = 0x03
+
+    DRATE_VALUES = {
+        2.5: 0x03, 5: 0x13, 10: 0x20, 15: 0x33, 25: 0x43, 30: 0x53, 50: 0x63,
+        60: 0x72, 100: 0x82, 500: 0x92, 1000: 0xA1, 2000: 0xB0, 3750: 0xC0,
+        7500: 0xD0, 15000: 0xE0, 30000: 0xF0,
+    }
+    GAIN_VALUES = {1:0x00, 2:0x01, 4:0x02, 8:0x03, 16:0x04, 32:0x05, 64:0x06}
+
+    def __init__(self, rm: SPIResourceManager, cfg: WorkerConfig):
+        self.rm = rm
+        self.cfg = cfg
+        self.initialized = False
+
+    def _write_cmd(self, cmd: int) -> None:
+        if not self.rm._setup_gpio():
+            raise RuntimeError("GPIO unavailable")
+        GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
+        try:
+            self.rm.spi.writebytes([cmd])
             time.sleep(0.0002)
         finally:
-            GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
+            GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
-    def _wait_drdy(self, timeout_s: float = 0.1) -> bool:
-        """Wait for DRDY to go low with timeout"""
-        # Ensure GPIO is initialized
-        if not self.spi_manager._setup_gpio():
-            raise RuntimeError("GPIO not available - cannot read DRDY")
-            
-        start = time.time()
-        while GPIO.input(self.config.adc_drdy_pin) == GPIO.HIGH:  # Wait for DRDY to go LOW (data ready)
-            if time.time() - start > timeout_s:
-                return False
-            time.sleep(0.00005)
-        return True
+    def _write_reg(self, reg: int, val: int) -> None:
+        if not self.rm._setup_gpio():
+            raise RuntimeError("GPIO unavailable")
+        GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
+        try:
+            self.rm.spi.writebytes([self.CMD_WREG | (reg & 0x0F), 0x00, val & 0xFF])
+            time.sleep(0.0002)
+        finally:
+            GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
-    def read_channel(self, channel: int, gain: int = 1, drate: float = 10.0, differential: bool = False, negChannel: int = 8, buffered: bool = False) -> Dict[str, Any]:
-        """Read from ADC channel"""
-        if not 0 <= channel <= 7:
-            raise ValueError("Channel must be 0-7")
-        if gain not in [1, 2, 4, 8, 16, 32, 64]:
-            raise ValueError("Gain must be 1, 2, 4, 8, 16, 32, or 64")
-        if drate not in [2.5, 5, 10, 15, 30, 60, 100, 500, 1000, 2000, 3750, 7500, 15000, 30000]:
+    def _wait_drdy(self, timeout_s: float = 10.0) -> bool:
+        if not self.rm._setup_gpio():
+            raise RuntimeError("GPIO unavailable")
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if GPIO.input(self.cfg.adc_drdy_pin) == GPIO.LOW:
+                return True
+            time.sleep(0.001)
+        return False
+
+    def _reset(self) -> None:
+        if not self.rm._setup_gpio():
+            raise RuntimeError("GPIO unavailable")
+        # Align with the working ad.py timing (100 ms pulses)
+        GPIO.output(self.cfg.adc_rst_pin, GPIO.LOW)
+        time.sleep(0.1)
+        GPIO.output(self.cfg.adc_rst_pin, GPIO.HIGH)
+        time.sleep(0.1)
+
+    def _ensure_init(self) -> None:
+        if self.initialized:
+            return
+        with self.rm.lock:
+            self.rm._setup_gpio()
+            self.rm._setup_spi()
+            self._reset()
+            self.initialized = True
+            log.info("ADS1256 initialized")
+
+    def _configure(self, channel: int, gain: int, buffered: bool, drate: float,
+                   differential: bool, neg_channel: int) -> None:
+        # 1) Leave any continuous mode (critical)
+        self._write_cmd(self.CMD_SDATAC)
+        # 2) STATUS buffer bit
+        self._write_reg(self.REG_STATUS, 0x02 if buffered else 0x00)
+        # 3) MUX selection (AINp = channel, AINn = neg or AINCOM=8)
+        ain_n = neg_channel if differential else 0x08
+        mux = ((channel & 0x0F) << 4) | (ain_n & 0x0F)
+        self._write_reg(self.REG_MUX, mux)
+        # 4) ADCON gain (clock bits default)
+        if gain not in self.GAIN_VALUES:
+            raise ValueError("Invalid gain")
+        self._write_reg(self.REG_ADCON, self.GAIN_VALUES[gain])
+        # 5) DRATE
+        if drate not in self.DRATE_VALUES:
             raise ValueError("Invalid data rate")
+        self._write_reg(self.REG_DRATE, self.DRATE_VALUES[drate])
+        log.info(f"ADC cfg: CH={channel}, NEG={'AINCOM' if not differential else neg_channel}, "
+                 f"GAIN={gain}, BUF={buffered}, DRATE={drate}SPS")
+
+    def read_channel(self, channel: int, *, gain: int = 1, drate: float = 10.0,
+                     differential: bool = False, neg_channel: int = 8,
+                     buffered: bool = False, vref: float = 3.3) -> Dict[str, Any]:
+        if not (0 <= channel <= 7):
+            raise ValueError("channel 0..7")
         if differential:
-            if not 0 <= negChannel <= 7:
-                raise ValueError("Negative channel must be 0-7 in differential mode")
-            if negChannel == channel:
-                raise ValueError("Positive and negative channels must differ")
-        else:
-            # single-ended uses AINCOM which is channel 8 in ADS1256 MUX encoding
-            negChannel = 8
-            
-        with self.spi_manager.lock:
-            # Ensure ADC is initialized
-            if not self._setup_adc():
-                raise RuntimeError("Failed to initialize ADC")
-                
-            # Stop continuous read mode and configure MUX for requested channels
-            self._write_register(self.REG_STATUS, 0x02 if buffered else 0x00)  # set buffer bit accordingly
-            # Set MUX: upper nibble = AINp, lower nibble = AINn (8 = AINCOM)
-            mux_value = ((channel & 0x0F) << 4) | (negChannel & 0x0F)
-            self._write_register(self.REG_MUX, mux_value)
+            if not (0 <= neg_channel <= 7):
+                raise ValueError("neg_channel 0..7 in differential mode")
+            if neg_channel == channel:
+                raise ValueError("pos and neg must differ")
+        # init once
+        self._ensure_init()
 
-            # Wait for initial data ready
-            logger.info("Waiting for initial DRDY...")
-            if not self._wait_drdy(0.1):
-                raise TimeoutError("ADC initial DRDY timeout")
-            logger.info("Initial DRDY received")
-                
-            # Start conversion with sync/wakeup
-            logger.info("Starting conversion with SYNC/WAKEUP...")
-            GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
+        with self.rm.lock:
+            # program like the known-good one-shot
+            self._configure(channel, gain, buffered, drate, differential, neg_channel)
+
+            # initial DRDY
+            log.info("Waiting initial DRDY...")
+            if not self._wait_drdy(timeout_s=10.0):
+                raise TimeoutError("initial DRDY timeout")
+
+            # SYNC/WAKEUP (kick conversion)
+            log.info("SYNC/WAKEUP")
+            GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
             try:
-                self.spi_manager.spi.writebytes([self.CMD_SYNC])
+                self.rm.spi.writebytes([self.CMD_SYNC])
                 time.sleep(0.0002)
-                self.spi_manager.spi.writebytes([self.CMD_WAKEUP])
+                self.rm.spi.writebytes([self.CMD_WAKEUP])
             finally:
-                GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
-            logger.info("SYNC/WAKEUP commands sent")
+                GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
-            # Wait for conversion to complete
-            logger.info("Waiting for conversion DRDY...")
-            if not self._wait_drdy(0.1):
-                raise TimeoutError("ADC conversion DRDY timeout")
-            logger.info("Conversion DRDY received")
-                
-            # Read data (simplified)
-            logger.info("Reading ADC data...")
-            GPIO.output(self.config.adc_cs_pin, GPIO.LOW)
+            # conversion DRDY
+            log.info("Waiting conversion DRDY...")
+            if not self._wait_drdy(timeout_s=10.0):
+                raise TimeoutError("conversion DRDY timeout")
+
+            # RDATA + 3 bytes read (10 ms settle like ad.py)
+            log.info("RDATA + readbytes(3)")
+            GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
             try:
-                # Send read command and read 3 bytes
-                self.spi_manager.spi.writebytes([self.CMD_RDATA])  # RDATA command
-                time.sleep(0.0001)
-                data = self.spi_manager.spi.readbytes(3)
-                logger.info(f"Read 3 bytes: {[hex(b) for b in data]}")
+                self.rm.spi.writebytes([self.CMD_RDATA])
+                time.sleep(0.01)
+                data = self.rm.spi.readbytes(3)
             finally:
-                GPIO.output(self.config.adc_cs_pin, GPIO.HIGH)
-                
-            # Convert 3 bytes to 24-bit value
-            raw_value = (data[0] << 16) | (data[1] << 8) | data[2]
-            logger.info(f"Raw value: {raw_value}")
-            
-            # Convert to voltage (simplified calculation)
-            voltage_mv = (raw_value / 8388607.0) * 3.3 * 1000  # Using 3.3V as per working da.py
-            logger.info(f"Voltage: {voltage_mv} mV")
-            
+                GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
+
+        if len(data) != 3:
+            raise RuntimeError(f"expected 3 bytes, got {len(data)}")
+
+        raw = (data[0] << 16) | (data[1] << 8) | data[2]
+        if raw & 0x800000:
+            raw -= 0x1000000  # signed 24-bit
+
+        # Convert to mV using Vref / gain, consistent with ad.py style formulas
+        voltage_mv = (raw / (2**23)) * vref * 1000.0 / gain
+
+        log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
         return {
             "channel": channel,
-            "negChannel": None if negChannel == 8 else negChannel,
+            "negChannel": None if (not differential) else neg_channel,
             "differential": differential,
             "buffered": buffered,
-            "raw": raw_value,
-            "voltage_mv": int(voltage_mv),
+            "raw": raw,
+            "voltage_mv": float(f"{voltage_mv:.3f}"),
             "gain": gain,
             "drate": drate,
-            "vref": 3.3  # Hard-coded as per working da.py
+            "vref": vref,
         }
 
+
+# -----------------------------
+# Worker (JSON-RPC stdio)
+# -----------------------------
 class Worker:
-    """Main worker class that handles JSON-RPC requests"""
-    
-    def __init__(self, config: WorkerConfig):
-        self.config = config
-        self.spi_manager = SPIResourceManager(config)
-        self.dac_controller = DAC8532Controller(self.spi_manager, config)
-        self.adc_controller = ADS1256Controller(self.spi_manager, config)
+    def __init__(self, cfg: WorkerConfig):
+        self.cfg = cfg
+        self.rm = SPIResourceManager(cfg)
+        self.dac = DAC8532(self.rm, cfg)
+        self.adc = ADS1256(self.rm, cfg)
+
         self.running = True
         self.last_activity = time.time()
-        
-        # Setup signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        
-        # Start watchdog thread
-        self.watchdog_thread = threading.Thread(target=self._watchdog, daemon=True)
-        self.watchdog_thread.start()
-        
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals"""
-        logger.info(f"Received signal {signum}, shutting down")
+        self.in_progress = threading.Event()
+
+        signal.signal(signal.SIGINT, self._sig)
+        signal.signal(signal.SIGTERM, self._sig)
+
+        self.watchdog_t = threading.Thread(target=self._watchdog, daemon=True)
+        self.watchdog_t.start()
+
+    def _sig(self, signum, _frame):
+        log.info(f"Signal {signum}; shutting down")
         self.running = False
-        
+
+    def _tick(self):
+        self.last_activity = time.time()
+
     def _watchdog(self):
-        """Watchdog thread that shuts down after 5 seconds of inactivity"""
         while self.running:
             time.sleep(1)
-            if time.time() - self.last_activity > 5:
-                logger.info("No activity for 5 seconds, shutting down")
+            if self.in_progress.is_set():
+                self._tick()
+                continue
+            if time.time() - self.last_activity > self.cfg.idle_shutdown_s:
+                log.info(f"No activity for {self.cfg.idle_shutdown_s}s, shutting down")
                 self.running = False
                 break
-                
-    def _update_activity(self):
-        """Update last activity timestamp"""
-        self.last_activity = time.time()
-        
-    def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle a JSON-RPC request"""
-        try:
-            self._update_activity()
-            
-            method = request.get("method")
-            params = request.get("params", {})
-            request_id = request.get("id")
-            
-            logger.info(f"Handling request: method={method}, params={params}, id={request_id}")
-            
-            if method == "set_dac_value":
-                logger.info(f"DAC set_dac_value: port={params.get('port')}, value={params.get('value')}")
-                result = self.dac_controller.set_dac_value(
-                    params["port"], 
-                    params["value"]
-                )
-                logger.info(f"DAC set_dac_value result: {result}")
-            elif method == "set_dac_voltage":
-                logger.info(f"DAC set_dac_voltage: port={params.get('port')}, voltage={params.get('voltage')}")
-                result = self.dac_controller.set_dac_voltage(
-                    params["port"], 
-                    params["voltage"]
-                )
-                logger.info(f"DAC set_dac_voltage result: {result}")
-            elif method == "read_adc":
-                logger.info(f"ADC read_channel: channel={params.get('channel')}, gain={params.get('gain')}, drate={params.get('drate')}, differential={params.get('differential')}, negChannel={params.get('negChannel')}, buffered={params.get('buffered')}")
-                result = self.adc_controller.read_channel(
-                    params["channel"],
-                    params.get("gain", 1),
-                    params.get("drate", 10.0),
-                    params.get("differential", False),
-                    params.get("negChannel", 8),
-                    params.get("buffered", False)
-                )
-                logger.info(f"ADC read_channel result: {result}")
-            elif method == "ping":
-                logger.info("Ping request received")
-                result = {"status": "ok", "timestamp": time.time()}
-            else:
-                logger.error(f"Unknown method: {method}")
-                raise ValueError(f"Unknown method: {method}")
-                
-            logger.info(f"Request {request_id} completed successfully")
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": result
-            }
-            
-        except Exception as e:
-            logger.error(f"Error handling request: {e}")
-            return {
-                "jsonrpc": "2.0",
-                "id": request.get("id"),
-                "error": {
-                    "code": -1,
-                    "message": str(e)
-                }
-            }
-            
-    def run(self):
-        """Main run loop - read JSON-RPC requests from stdin"""
-        logger.info("Worker started, waiting for requests")
-        
-        while self.running:
+
+    def _with_timeout(self, fn, timeout_s: float, *a, **kw) -> Tuple[Any, Optional[Exception]]:
+        box: Dict[str, Any] = {}
+        err: Dict[str, Exception] = {}
+
+        def target():
             try:
-                line = sys.stdin.readline()
-                if not line:
-                    logger.info("No more input, exiting")
-                    break
-                    
-                line = line.strip()
-                if not line:
-                    logger.debug("Empty line received, continuing")
-                    continue
-                    
-                logger.info(f"Received line: {line}")
-                
-                try:
-                    request = json.loads(line)
-                    logger.info(f"Parsed JSON request: {request}")
-                    response = self.handle_request(request)
-                    logger.info(f"Sending response: {response}")
-                    print(json.dumps(response), flush=True)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON: {e}")
-                    error_response = {
-                        "jsonrpc": "2.0",
-                        "id": None,
-                        "error": {
-                            "code": -32700,
-                            "message": "Parse error"
-                        }
-                    }
-                    print(json.dumps(error_response), flush=True)
-                    
+                box["ret"] = fn(*a, **kw)
             except Exception as e:
-                logger.error(f"Unexpected error: {e}")
+                err["e"] = e
+
+        t = threading.Thread(target=target, daemon=True)
+        t.start()
+        t.join(timeout_s)
+        if t.is_alive():
+            return None, TimeoutError(f"operation timed out after {timeout_s}s")
+        if "e" in err:
+            return None, err["e"]
+        return box.get("ret"), None
+
+    def _write_response(self, resp: Dict[str, Any]) -> None:
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+    def handle(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        self._tick()
+        method = req.get("method")
+        params = req.get("params") or {}
+        _id = req.get("id")
+
+        try:
+            if method == "ping":
+                return {"jsonrpc": "2.0", "id": _id, "result": {"status": "ok", "ts": time.time()}}
+
+            if method == "set_dac_value":
+                ret = self.dac.set_value(int(params["port"]), int(params["value"]))
+                return {"jsonrpc": "2.0", "id": _id, "result": ret}
+
+            if method == "set_dac_voltage":
+                ret = self.dac.set_voltage(int(params["port"]), float(params["voltage"]))
+                return {"jsonrpc": "2.0", "id": _id, "result": ret}
+
+            if method == "read_adc":
+                ch = int(params["channel"])  # required
+                ret, err = self._with_timeout(
+                    self.adc.read_channel,
+                    min(self.cfg.request_timeout_s, 15),  # guard but allow ADC work
+                    ch,
+                    gain=int(params.get("gain", 1)),
+                    drate=float(params.get("drate", 10.0)),
+                    differential=bool(params.get("differential", False)),
+                    neg_channel=int(params.get("negChannel", 8)),
+                    buffered=bool(params.get("buffered", False)),
+                    vref=float(params.get("vref", 3.3)),
+                )
+                if err:
+                    raise err
+                return {"jsonrpc": "2.0", "id": _id, "result": ret}
+
+            raise ValueError("Method not found")
+
+        except Exception as e:
+            log.error(f"Request error: {e}")
+            return {"jsonrpc": "2.0", "id": _id, "error": {"code": -32000, "message": str(e)}}
+
+    def run(self):
+        log.info("Worker started; awaiting requests")
+        while self.running:
+            line = sys.stdin.readline()
+            if not line:
+                log.info("stdin closed; exiting")
                 break
-                
+            s = line.strip()
+            if not s:
+                continue
+            try:
+                req = json.loads(s)
+            except json.JSONDecodeError as e:
+                self._write_response({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
+                continue
+
+            self.in_progress.set()
+            try:
+                resp = self.handle(req)
+            finally:
+                self.in_progress.clear()
+
+            self._write_response(resp)
+
         self.cleanup()
-        
+
     def cleanup(self):
-        """Clean up resources"""
-        logger.info("Cleaning up worker resources")
-        self.spi_manager.cleanup()
+        log.info("Cleaning up worker resources")
+        self.rm.cleanup()
+
 
 def main():
-    """Main entry point"""
-    config = WorkerConfig()
-    worker = Worker(config)
-    
+    cfg = WorkerConfig()
+    w = Worker(cfg)
     try:
-        worker.run()
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
+        w.run()
     finally:
-        worker.cleanup()
+        w.cleanup()
+
 
 if __name__ == "__main__":
     main()
