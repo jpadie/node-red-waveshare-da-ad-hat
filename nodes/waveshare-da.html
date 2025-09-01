@@ -56,17 +56,20 @@
     <p>Digital-to-Analog Converter (DAC) node for Waveshare DA-AD HAT.</p>
     
     <h3>Inputs</h3>
-    <p>The node accepts a message with a <code>payload</code> containing either:</p>
-    <ul>
-        <li><strong>Raw DAC value:</strong> Integer between 0-65535 (16-bit resolution)</li>
-        <li><strong>Voltage:</strong> Float voltage value in volts (0 to VREF)</li>
-    </ul>
+    <p>The node accepts a message with a <code>payload</code> object:</p>
+    <pre><code>{
+  "port": 0 | 1,
+  "controlMode": "value" | "voltage",
+  "value": number,             // raw (0..65535) if value mode, volts if voltage mode
+  "vref": number               // required in voltage mode
+}</code></pre>
     
-    <p><strong>Payload Override:</strong> You can also include configuration parameters in the message payload to override the node settings:</p>
+    <p><strong>Payload fields:</strong></p>
     <ul>
         <li><code>payload.port</code>: DAC port (0 or 1)</li>
         <li><code>payload.controlMode</code>: 'value' or 'voltage'</li>
-        <li><code>payload.vref</code>: Reference voltage in volts</li>
+        <li><code>payload.value</code>: Raw code (0..65535) in value mode, or target volts in voltage mode</li>
+        <li><code>payload.vref</code>: Reference voltage in volts (used in voltage mode)</li>
     </ul>
     
     <p><strong>Payload Override:</strong> You can also include configuration parameters in the message payload to override the node settings:</p>
@@ -98,23 +101,18 @@
     
     <h4>Set DAC to specific value:</h4>
     <pre><code>{
-    "payload": 32768  // Set to mid-range (2.5V with 5V VREF)
+  "payload": { "controlMode": "value", "port": 0, "value": 32768 }
 }</code></pre>
     
     <h4>Set DAC to specific voltage:</h4>
     <pre><code>{
-    "payload": 3.3  // Set to 3.3V
+  "payload": { "controlMode": "voltage", "port": 1, "value": 3.3, "vref": 5.004 }
 }</code></pre>
     
-    <h4>Override configuration via payload:</h4>
+    <h4>Override node config via payload (example):</h4>
     <pre><code>{
-    "payload": 3.3,
-    "port": 1,
-    "controlMode": "voltage",
-    "vref": 5.0
+  "payload": { "controlMode": "value", "port": 1, "value": 65535 }
 }</code></pre>
     
-    <p><strong>Note:</strong> The control mode determines how the input is interpreted. 
-    In "Raw DAC Value" mode, integer inputs are treated as DAC values. 
-    In "Voltage Output" mode, float inputs are treated as target voltage.</p>
+    <p><strong>Note:</strong> In value mode, <code>payload.value</code> is the raw 16-bit code. In voltage mode, <code>payload.value</code> is the target voltage and <code>payload.vref</code> is used to compute the code.</p>
 </script>
