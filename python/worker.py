@@ -271,6 +271,11 @@ class ADS1256:
     def read_channel(self, channel: int, *, gain: int = 1, drate: float = 10.0,
                      differential: bool = False, neg_channel: int = 8,
                      buffered: bool = False, vref: float = 3.3) -> Dict[str, Any]:
+        """Read a single conversion from the specified ADC channel.
+        Performs a configuration step, discards the first conversion after SYNC/WAKEUP,
+        then returns the next valid conversion result.
+        """
+
         if not (0 <= channel <= 7):
             raise ValueError("channel 0..7")
         if differential:
@@ -278,11 +283,14 @@ class ADS1256:
                 raise ValueError("neg_channel 0..7 in differential mode")
             if neg_channel == channel:
                 raise ValueError("pos and neg must differ")
+        if vref <= 0.0:
+            raise ValueError("vref must be > 0")
+
         # init once
         self._ensure_init()
 
         with self.rm.lock:
-            # program like the known-good one-shot
+            # configure registers
             self._configure(channel, gain, buffered, drate, differential, neg_channel)
 
             # initial DRDY
@@ -300,12 +308,24 @@ class ADS1256:
             finally:
                 GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
-            # conversion DRDY
-            log.info("Waiting conversion DRDY...")
+            # wait for DRDY, then discard first conversion
+            log.info("Discarding first conversion...")
             if not self._wait_drdy(timeout_s=10.0):
-                raise TimeoutError("conversion DRDY timeout")
+                raise TimeoutError("discard DRDY timeout")
+            GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
+            try:
+                self.rm.spi.writebytes([self.CMD_RDATA])
+                time.sleep(0.01)
+                _ = self.rm.spi.readbytes(3)  # discard
+            finally:
+                GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
-            # RDATA + 3 bytes read (10 ms settle like ad.py)
+            # wait for DRDY again for the valid conversion
+            log.info("Waiting for valid conversion DRDY...")
+            if not self._wait_drdy(timeout_s=10.0):
+                raise TimeoutError("valid conversion DRDY timeout")
+
+            # now read the valid result
             log.info("RDATA + readbytes(3)")
             GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
             try:
@@ -322,8 +342,8 @@ class ADS1256:
         if raw & 0x800000:
             raw -= 0x1000000  # signed 24-bit
 
-        # Convert to mV using Vref / gain, consistent with ad.py style formulas
-        voltage_mv = (raw / (2**23)) * vref * 1000.0 / gain
+        # Convert to mV using Vref / gain
+        voltage_mv = (raw / (2**23)) * float(vref) * 1000.0 / float(gain)
 
         log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
         return {
@@ -337,6 +357,7 @@ class ADS1256:
             "drate": drate,
             "vref": vref,
         }
+
 
 
 # -----------------------------
