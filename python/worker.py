@@ -14,11 +14,57 @@ import time
 import logging
 import signal
 import threading
+import os
+import types
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-import spidev
-import RPi.GPIO as GPIO
+try:
+    import spidev
+    import RPi.GPIO as GPIO
+except Exception:  # Allow local dev on non-RPi hosts with mocks
+    if os.environ.get("WS_MOCK_GPIO") == "1":
+        class _MockSpiDev:
+            def __init__(self):
+                self.max_speed_hz = 0
+                self.mode = 0
+                self.lsbfirst = False
+                self.cshigh = False
+                self.no_cs = False
+            def open(self, bus, dev):
+                pass
+            def writebytes(self, arr):
+                pass
+            def readbytes(self, n):
+                return [0] * n
+            def close(self):
+                pass
+
+        spidev = types.SimpleNamespace(SpiDev=_MockSpiDev)
+
+        class _MockGPIO:
+            BCM = 11
+            OUT = 1
+            IN = 0
+            HIGH = 1
+            LOW = 0
+            PUD_UP = 2
+            def setmode(self, *_a, **_kw):
+                pass
+            def setwarnings(self, *_a, **_kw):
+                pass
+            def setup(self, *_a, **_kw):
+                pass
+            def output(self, *_a, **_kw):
+                pass
+            def input(self, *_a, **_kw):
+                return 0
+            def cleanup(self, *_a, **_kw):
+                pass
+
+        GPIO = _MockGPIO()
+    else:
+        raise
 
 # -----------------------------
 # Logging to STDERR (Node reads responses from STDOUT)
@@ -193,6 +239,11 @@ class ADS1256:
     }
     GAIN_VALUES = {1:0x00, 2:0x01, 4:0x02, 8:0x03, 16:0x04, 32:0x05, 64:0x06}
 
+    # Optional alpha/beta lookup from datasheet Table 18 (user-provided values).
+    # Key: (drate_sps: float, gain: int, buffered: int, differential: int) -> (alpha_mv_per_code: float, beta_mv: float)
+    # If no entry is found, a mathematically derived default is used.
+    ALPHA_BETA_TABLE: Dict[Tuple[float, int, int, int], Tuple[float, float]] = {}
+
     def __init__(self, rm: SPIResourceManager, cfg: WorkerConfig):
         self.rm = rm
         self.cfg = cfg
@@ -251,8 +302,10 @@ class ADS1256:
                    differential: bool, neg_channel: int) -> None:
         # 1) Leave any continuous mode (critical)
         self._write_cmd(self.CMD_SDATAC)
-        # 2) STATUS buffer bit
-        self._write_reg(self.REG_STATUS, 0x02 if buffered else 0x00)
+        # 2) STATUS: enable AUTOCAL (ACAL=1). Buffer bit per request.
+        # ACAL bit assumed at 0x04 per ADS1256 datasheet; BUFEN bit at 0x02.
+        status_val = 0x04 | (0x02 if buffered else 0x00)
+        self._write_reg(self.REG_STATUS, status_val)
         # 3) MUX selection (AINp = channel, AINn = neg or AINCOM=8)
         ain_n = neg_channel if differential else 0x08
         mux = ((channel & 0x0F) << 4) | (ain_n & 0x0F)
@@ -267,10 +320,14 @@ class ADS1256:
         self._write_reg(self.REG_DRATE, self.DRATE_VALUES[drate])
         log.info(f"ADC cfg: CH={channel}, NEG={'AINCOM' if not differential else neg_channel}, "
                  f"GAIN={gain}, BUF={buffered}, DRATE={drate}SPS")
+        # 6) Self-calibrate after config changes for offset/gain
+        self._write_cmd(0xF0)  # SELFCAL
+        if not self._wait_drdy(timeout_s=2.0):
+            log.warning("SELFCAL DRDY timeout")
 
     def read_channel(self, channel: int, *, gain: int = 1, drate: float = 10.0,
                      differential: bool = False, neg_channel: int = 8,
-                     buffered: bool = False, vref: float = 3.3) -> Dict[str, Any]:
+                     buffered: bool = False) -> Dict[str, Any]:
         """Read a single conversion from the specified ADC channel.
         Performs a configuration step, discards the first conversion after SYNC/WAKEUP,
         then returns the next valid conversion result.
@@ -283,8 +340,8 @@ class ADS1256:
                 raise ValueError("neg_channel 0..7 in differential mode")
             if neg_channel == channel:
                 raise ValueError("pos and neg must differ")
-        if vref <= 0.0:
-            raise ValueError("vref must be > 0")
+        
+        ADC_VREF = 2.5  # fixed by HAT
 
         # init once
         self._ensure_init()
@@ -337,14 +394,20 @@ class ADS1256:
 
         if len(data) != 3:
             raise RuntimeError(f"expected 3 bytes, got {len(data)}")
-
+                
         raw = (data[0] << 16) | (data[1] << 8) | data[2]
         if raw & 0x800000:
             raw -= 0x1000000  # signed 24-bit
-
-        # Convert to mV using Vref / gain
-        voltage_mv = (raw / (2**23)) * float(vref) * 1000.0 / float(gain)
-
+            
+        # Convert to mV using user's formula with AUTOCAL: Vin = raw/(2^23-1) * (2.5V / PGA)
+        # Keep LUT hook but default to math per spec.
+        key = (float(drate), int(gain), int(bool(buffered)), int(bool(differential)))
+        if key in self.ALPHA_BETA_TABLE:
+            alpha_mv_per_code, beta_mv = self.ALPHA_BETA_TABLE[key]
+            voltage_mv = alpha_mv_per_code * float(raw) + beta_mv
+        else:
+            voltage_mv = (float(raw) / 8388607.0) * (ADC_VREF * 1000.0) / float(gain)
+            
         log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
         return {
             "channel": channel,
@@ -355,7 +418,6 @@ class ADS1256:
             "voltage_mv": float(f"{voltage_mv:.3f}"),
             "gain": gain,
             "drate": drate,
-            "vref": vref,
         }
 
 
@@ -373,17 +435,17 @@ class Worker:
         self.running = True
         self.last_activity = time.time()
         self.in_progress = threading.Event()
-
+        
         signal.signal(signal.SIGINT, self._sig)
         signal.signal(signal.SIGTERM, self._sig)
-
+        
         self.watchdog_t = threading.Thread(target=self._watchdog, daemon=True)
         self.watchdog_t.start()
-
+        
     def _sig(self, signum, _frame):
         log.info(f"Signal {signum}; shutting down")
         self.running = False
-
+        
     def _tick(self):
         self.last_activity = time.time()
 
@@ -397,7 +459,7 @@ class Worker:
                 log.info(f"No activity for {self.cfg.idle_shutdown_s}s, shutting down")
                 self.running = False
                 break
-
+                
     def _with_timeout(self, fn, timeout_s: float, *a, **kw) -> Tuple[Any, Optional[Exception]]:
         box: Dict[str, Any] = {}
         err: Dict[str, Exception] = {}
@@ -430,7 +492,7 @@ class Worker:
         try:
             if method == "ping":
                 return {"jsonrpc": "2.0", "id": _id, "result": {"status": "ok", "ts": time.time()}}
-
+            
             if method == "set_dac_value":
                 ret = self.dac.set_value(int(params["port"]), int(params["value"]))
                 return {"jsonrpc": "2.0", "id": _id, "result": ret}
@@ -450,18 +512,17 @@ class Worker:
                     differential=bool(params.get("differential", False)),
                     neg_channel=int(params.get("negChannel", 8)),
                     buffered=bool(params.get("buffered", False)),
-                    vref=float(params.get("vref", 3.3)),
                 )
                 if err:
                     raise err
                 return {"jsonrpc": "2.0", "id": _id, "result": ret}
 
             raise ValueError("Method not found")
-
+            
         except Exception as e:
             log.error(f"Request error: {e}")
             return {"jsonrpc": "2.0", "id": _id, "error": {"code": -32000, "message": str(e)}}
-
+            
     def run(self):
         log.info("Worker started; awaiting requests")
         while self.running:
@@ -474,7 +535,7 @@ class Worker:
                 continue
             try:
                 req = json.loads(s)
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
                 self._write_response({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
                 continue
 
@@ -485,9 +546,9 @@ class Worker:
                 self.in_progress.clear()
 
             self._write_response(resp)
-
+                
         self.cleanup()
-
+        
     def cleanup(self):
         log.info("Cleaning up worker resources")
         self.rm.cleanup()

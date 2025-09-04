@@ -105,3 +105,9 @@ jspm_packages/
 
 # DynamoDB Local files
 .dynamodb/
+
+# Datasheets and large binary docs
+*.pdf
+*.PDF
+datasheet*
+**/datasheets/**

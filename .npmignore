@@ -54,3 +54,8 @@ logs
 # npm configuration
 .npmrc
 
+# Datasheets and large binary docs
+*.pdf
+*.PDF
+datasheet*
+**/datasheets/**

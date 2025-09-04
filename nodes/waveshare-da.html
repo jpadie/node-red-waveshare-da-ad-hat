@@ -4,7 +4,6 @@
         color: '#C0DEED',
         defaults: {
             name: {value: ''},
-            hatConfig: {value: '', type: 'waveshare-hat-config'},
             port: {value: 0},
             controlMode: {value: 'value'},
             vref: {value: 5.0}
@@ -24,10 +23,7 @@
         <input type="text" id="node-input-name" placeholder="Waveshare DA">
     </div>
     
-    <div class="form-row">
-        <label for="node-input-hatConfig"><i class="fa fa-cog"></i> HAT Config</label>
-        <input type="text" id="node-input-hatConfig">
-    </div>
+    
     
     <div class="form-row">
         <label for="node-input-port"><i class="fa fa-plug"></i> DAC Port</label>
@@ -81,7 +77,6 @@
     
     <h3>Configuration</h3>
     <ul>
-        <li><strong>HAT Config:</strong> Select the Waveshare HAT Config node that manages the hardware</li>
         <li><strong>DAC Port:</strong> Choose between DAC0 (Port 0) or DAC1 (Port 1)</li>
         <li><strong>Control Mode:</strong> Choose between raw DAC values or voltage output</li>
         <li><strong>Reference Voltage:</strong> Set the DAC reference voltage (1.0V to 10.0V)</li>
