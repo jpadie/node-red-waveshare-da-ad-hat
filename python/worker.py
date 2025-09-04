@@ -244,6 +244,7 @@ class ADS1256:
     CMD_SDATAC = 0x0F
     CMD_RDATA  = 0x01
     CMD_WREG   = 0x50
+    CMD_RREG   = 0x10
     CMD_SYNC   = 0xFC
     CMD_WAKEUP = 0x00
 
@@ -287,6 +288,21 @@ class ADS1256:
         try:
             self.rm.spi.writebytes([self.CMD_WREG | (reg & 0x0F), 0x00, val & 0xFF])
             time.sleep(0.0002)
+        finally:
+            GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
+
+    def _read_reg(self, reg: int) -> int:
+        if not self.rm._setup_gpio():
+            raise RuntimeError("GPIO unavailable")
+        GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
+        try:
+            # RREG command: 0x10 | reg, then count-1 (0 for one byte), then read one byte
+            self.rm.spi.writebytes([self.CMD_RREG | (reg & 0x0F), 0x00])
+            time.sleep(0.0002)
+            data = self.rm.spi.readbytes(1)
+            if not data or len(data) != 1:
+                raise RuntimeError("RREG read failed")
+            return data[0] & 0xFF
         finally:
             GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
@@ -348,7 +364,7 @@ class ADS1256:
 
     def read_channel(self, channel: int, *, gain: int = 1, drate: float = 10.0,
                      differential: bool = False, neg_channel: int = 8,
-                     buffered: bool = False) -> Dict[str, Any]:
+                     buffered: bool = False, debugStatusReadback: bool = False) -> Dict[str, Any]:
         """Read a single conversion from the specified ADC channel.
         Performs a configuration step, discards the first conversion after SYNC/WAKEUP,
         then returns the next valid conversion result.
@@ -370,6 +386,14 @@ class ADS1256:
         with self.rm.lock:
             # configure registers
             self._configure(channel, gain, buffered, drate, differential, neg_channel)
+
+            status_reg_val: Optional[int] = None
+            if debugStatusReadback:
+                try:
+                    status_reg_val = self._read_reg(self.REG_STATUS)
+                    log.info(f"STATUS readback: 0x{status_reg_val:02X} (BUFEN={(status_reg_val>>1)&1}, ACAL={(status_reg_val>>2)&1})")
+                except Exception as e:
+                    log.warning(f"STATUS readback failed: {e}")
 
             # initial DRDY
             log.info("Waiting initial DRDY...")
@@ -433,6 +457,7 @@ class ADS1256:
             "voltage": round(voltage, 5),
             "gain": gain,
             "drate": drate,
+            **({"statusReg": status_reg_val} if debugStatusReadback and (status_reg_val is not None) else {}),
         }
 
 
@@ -598,6 +623,14 @@ class Worker:
                     with self.rm.lock:
                         self.adc._configure(ch, gain, buffered, drate, differential, neg)
 
+                    status_reg_val = None
+                    if bool(ch_cfg.get("debugStatus", False)):
+                        try:
+                            status_reg_val = self.adc._read_reg(self.adc.REG_STATUS)
+                            log.info(f"[stream {stream_id}] STATUS=0x{status_reg_val:02X} BUFEN={(status_reg_val>>1)&1} ACAL={(status_reg_val>>2)&1}")
+                        except Exception as e:
+                            log.warning(f"[stream {stream_id}] STATUS readback failed: {e}")
+
                     # initial DRDY and SYNC/WAKEUP
                     if not self.adc._wait_drdy(timeout_s=10.0):
                         raise TimeoutError("initial DRDY timeout")
@@ -654,6 +687,8 @@ class Worker:
                         "drate": drate,
                         "ts": time.time(),
                     }
+                    if status_reg_val is not None:
+                        sample["statusReg"] = status_reg_val
                     self._notify_stream_sample(sample)
                 except Exception as e:
                     self._notify_stream_sample({
