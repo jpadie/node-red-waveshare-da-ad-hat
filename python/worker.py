@@ -399,7 +399,8 @@ class ADS1256:
         if raw & 0x800000:
             raw -= 0x1000000  # signed 24-bit
             
-        voltage_mv = (float(raw) * 2 * ADC_VREF / (float(gain) * 0x7FFFFF))    
+        voltage = (float(raw) * 2 * ADC_VREF / (float(gain) * 0x7FFFFF))    
+        voltage_mv = voltage * 1000
         log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
         return {
             "channel": channel,
@@ -408,6 +409,7 @@ class ADS1256:
             "buffered": buffered,
             "raw": raw,
             "voltage_mv": float(f"{voltage_mv:.3f}"),
+            "voltage" : float(f"{voltage:.5f})"),
             "gain": gain,
             "drate": drate,
         }
