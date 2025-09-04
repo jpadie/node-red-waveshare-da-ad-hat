@@ -408,8 +408,8 @@ class ADS1256:
             "differential": differential,
             "buffered": buffered,
             "raw": raw,
-            "voltage_mv": float(f"{voltage_mv:.3f}"),
-            "voltage" : float(f"{voltage:.5f})"),
+            "voltage_mv": round(voltage_mv, 3),
+            "voltage": round(voltage, 5),
             "gain": gain,
             "drate": drate,
         }
