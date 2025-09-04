@@ -95,6 +95,10 @@ class WorkerConfig:
     idle_shutdown_s: int = 300      # generous; worker stays alive while busy
     request_timeout_s: int = 10     # per-request guard
 
+    # GPIO init retry policy
+    gpio_init_retries: int = 3
+    gpio_retry_delay_s: float = 0.05
+
 
 class SPIResourceManager:
     def __init__(self, cfg: WorkerConfig):
@@ -107,32 +111,49 @@ class SPIResourceManager:
     def _setup_gpio(self) -> bool:
         if self.gpio_ready:
             return True
-        try:
+        attempts = max(1, int(self.cfg.gpio_init_retries))
+        for attempt in range(1, attempts + 1):
             try:
-                GPIO.cleanup()
-            except Exception:
-                pass
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setwarnings(False)
+                try:
+                    GPIO.cleanup()
+                except Exception:
+                    pass
+                time.sleep(self.cfg.gpio_retry_delay_s)
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setwarnings(False)
 
-            # ADC pins
-            GPIO.setup(self.cfg.adc_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
-            GPIO.setup(self.cfg.adc_rst_pin, GPIO.OUT, initial=GPIO.HIGH)
-            GPIO.setup(self.cfg.adc_drdy_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                # ADC pins
+                GPIO.setup(self.cfg.adc_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+                GPIO.setup(self.cfg.adc_rst_pin, GPIO.OUT, initial=GPIO.HIGH)
+                GPIO.setup(self.cfg.adc_drdy_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-            # DAC pin
-            GPIO.setup(self.cfg.dac_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+                # DAC pin
+                GPIO.setup(self.cfg.dac_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
 
-            self.gpio_ready = True
-            log.info(
-                f"GPIO init OK (ADC_CS={self.cfg.adc_cs_pin}, ADC_RST={self.cfg.adc_rst_pin}, "
-                f"DRDY={self.cfg.adc_drdy_pin}, DAC_CS={self.cfg.dac_cs_pin})"
-            )
-            return True
-        except Exception as e:
-            log.error(f"GPIO init failed: {e}")
-            self.gpio_ready = False
-            return False
+                self.gpio_ready = True
+                log.info(
+                    f"GPIO init OK (ADC_CS={self.cfg.adc_cs_pin}, ADC_RST={self.cfg.adc_rst_pin}, "
+                    f"DRDY={self.cfg.adc_drdy_pin}, DAC_CS={self.cfg.dac_cs_pin})"
+                )
+                return True
+            except Exception as e:
+                log.warning(f"GPIO init attempt {attempt}/{attempts} failed: {e}")
+                self.gpio_ready = False
+        log.error("GPIO init failed after retries")
+        return False
+
+    def ensure_gpio_ready(self) -> None:
+        """Ensure GPIO is initialized, with a forced cleanup+retry before failing."""
+        if self._setup_gpio():
+            return
+        # one forced cleanup and final attempt
+        try:
+            GPIO.cleanup()
+        except Exception:
+            pass
+        time.sleep(self.cfg.gpio_retry_delay_s)
+        if not self._setup_gpio():
+            raise RuntimeError("GPIO unavailable after retries")
 
     # Lazily set up SPI on first use
     def _setup_spi(self) -> None:
@@ -192,12 +213,12 @@ class DAC8532:
             raise ValueError("port must be 0 or 1")
         if not (0 <= value <= 0xFFFF):
             raise ValueError("value must be 0..65535")
-        if not self.rm._setup_gpio():
-            raise RuntimeError("GPIO unavailable")
-        self.rm._setup_spi()
+        # Serialize DAC ops with ADC via shared lock
+        with self.rm.lock:
+            self.rm.ensure_gpio_ready()
+            self.rm._setup_spi()
 
         # Match working da.py: 20kHz, mode=1
-        
         cmd = 0x30 if port == 0 else 0x34
         hi = (value >> 8) & 0xFF
         lo = value & 0xFF
@@ -435,6 +456,11 @@ class Worker:
         
         self.watchdog_t = threading.Thread(target=self._watchdog, daemon=True)
         self.watchdog_t.start()
+
+        # Streaming state
+        self.stream_running = False
+        self.stream_cfg: Optional[Dict[str, Any]] = None
+        self.stream_thread: Optional[threading.Thread] = None
         
     def _sig(self, signum, _frame):
         log.info(f"Signal {signum}; shutting down")
@@ -511,11 +537,135 @@ class Worker:
                     raise err
                 return {"jsonrpc": "2.0", "id": _id, "result": ret}
 
+            if method == "start_stream":
+                # params: { streamId: str, channels: [{ch, differential, neg, gain, drate, buffered}], emitRateHz?: float }
+                if self.stream_running:
+                    raise RuntimeError("Stream already running")
+                p = params
+                if not isinstance(p.get("channels"), list) or not p.get("channels"):
+                    raise ValueError("channels list required")
+                self.stream_cfg = {
+                    "streamId": p.get("streamId") or "default",
+                    "channels": p["channels"],
+                    "emitRateHz": float(p.get("emitRateHz", 1.0)),
+                }
+                self.stream_running = True
+                self.stream_thread = threading.Thread(target=self._stream_loop, daemon=True)
+                self.stream_thread.start()
+                return {"jsonrpc": "2.0", "id": _id, "result": {"ok": True}}
+
+            if method == "stop_stream":
+                self.stream_running = False
+                t = self.stream_thread
+                if t and t.is_alive():
+                    t.join(timeout=1.0)
+                self.stream_thread = None
+                self.stream_cfg = None
+                return {"jsonrpc": "2.0", "id": _id, "result": {"ok": True}}
+
             raise ValueError("Method not found")
             
         except Exception as e:
             log.error(f"Request error: {e}")
             return {"jsonrpc": "2.0", "id": _id, "error": {"code": -32000, "message": str(e)}}
+
+    def _notify_stream_sample(self, sample: Dict[str, Any]) -> None:
+        # Unsolicited event for stream samples
+        msg = {"jsonrpc": "2.0", "method": "stream_sample", "params": sample}
+        sys.stdout.write(json.dumps(msg) + "\n")
+        sys.stdout.flush()
+
+    def _stream_loop(self) -> None:
+        cfg = self.stream_cfg or {}
+        stream_id = cfg.get("streamId", "default")
+        channels = cfg.get("channels", [])
+        emit_rate_hz = float(cfg.get("emitRateHz", 1.0))
+        period_s = 1.0 / emit_rate_hz if emit_rate_hz > 0 else 1.0
+        while self.stream_running:
+            loop_start = time.time()
+            for ch_cfg in channels:
+                if not self.stream_running:
+                    break
+                try:
+                    ch = int(ch_cfg.get("ch"))
+                    differential = bool(ch_cfg.get("differential", False))
+                    neg = int(ch_cfg.get("neg", 8))
+                    gain = int(ch_cfg.get("gain", 1))
+                    drate = float(ch_cfg.get("drate", 10.0))
+                    buffered = bool(ch_cfg.get("buffered", False))
+
+                    # Configure MUX and regs under lock, but do not hold while waiting for DRDY
+                    with self.rm.lock:
+                        self.adc._configure(ch, gain, buffered, drate, differential, neg)
+
+                    # initial DRDY and SYNC/WAKEUP
+                    if not self.adc._wait_drdy(timeout_s=10.0):
+                        raise TimeoutError("initial DRDY timeout")
+                    with self.rm.lock:
+                        GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.LOW)
+                        try:
+                            self.rm.spi.writebytes([self.adc.CMD_SYNC])
+                            time.sleep(0.0002)
+                            self.rm.spi.writebytes([self.adc.CMD_WAKEUP])
+                        finally:
+                            GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.HIGH)
+
+                    # Discard first conversion
+                    if not self.adc._wait_drdy(timeout_s=10.0):
+                        raise TimeoutError("discard DRDY timeout")
+                    with self.rm.lock:
+                        GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.LOW)
+                        try:
+                            self.rm.spi.writebytes([self.adc.CMD_RDATA])
+                            time.sleep(0.01)
+                            _ = self.rm.spi.readbytes(3)
+                        finally:
+                            GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.HIGH)
+
+                    # Valid conversion
+                    if not self.adc._wait_drdy(timeout_s=10.0):
+                        raise TimeoutError("valid conversion DRDY timeout")
+                    with self.rm.lock:
+                        GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.LOW)
+                        try:
+                            self.rm.spi.writebytes([self.adc.CMD_RDATA])
+                            time.sleep(0.01)
+                            data = self.rm.spi.readbytes(3)
+                        finally:
+                            GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.HIGH)
+
+                    if len(data) != 3:
+                        raise RuntimeError("expected 3 bytes")
+                    raw = (data[0] << 16) | (data[1] << 8) | data[2]
+                    if raw & 0x800000:
+                        raw -= 0x1000000
+                    ADC_VREF = 2.5
+                    voltage = (float(raw) * 2 * ADC_VREF / (float(gain) * 0x7FFFFF))
+                    sample = {
+                        "streamId": stream_id,
+                        "channel": ch,
+                        "negChannel": None if (not differential) else neg,
+                        "differential": differential,
+                        "buffered": buffered,
+                        "raw": raw,
+                        "voltage_mv": round(voltage * 1000.0, 3),
+                        "voltage": round(voltage, 5),
+                        "gain": gain,
+                        "drate": drate,
+                        "ts": time.time(),
+                    }
+                    self._notify_stream_sample(sample)
+                except Exception as e:
+                    self._notify_stream_sample({
+                        "streamId": stream_id,
+                        "error": str(e),
+                        "ts": time.time(),
+                    })
+            # pace to target emit rate (per full channel set)
+            elapsed = time.time() - loop_start
+            sleep_rem = period_s - elapsed
+            if sleep_rem > 0:
+                time.sleep(sleep_rem)
             
     def run(self):
         log.info("Worker started; awaiting requests")
