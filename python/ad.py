@@ -27,6 +27,7 @@ class ADS1256Controller:
     CMD_RDATA = 0x01        # Read data
     CMD_SYNC = 0xFC         # Synchronize A/D conversion
     CMD_WAKEUP = 0x00       # Wake up from standby
+    CMD_SELFCAL = 0xF0      # Self-calibration
     
     # ADS1256 Registers
     REG_STATUS = 0x00       # Status register
@@ -208,9 +209,9 @@ class ADS1256Controller:
             # Stop continuous read mode
             self.write_command(self.CMD_SDATAC)
             
-            # Configure STATUS register (input buffer)
-            buffer_value = 0x02 if buffered else 0x00
-            self.write_register(self.REG_STATUS, buffer_value)
+            # Configure STATUS register: ACAL=1 for auto-cal; BUFEN per flag
+            status_value = 0x04 | (0x02 if buffered else 0x00)
+            self.write_register(self.REG_STATUS, status_value)
             
             # Configure MUX register (channel selection)
             # If differential: AINp=channel, AINn=neg_channel (0-7)
@@ -233,8 +234,13 @@ class ADS1256Controller:
             drate_value = self.DRATE_VALUES[data_rate]
             self.write_register(self.REG_DRATE, drate_value)
             
+            # Run self-calibration after configuration
+            self.write_command(self.CMD_SELFCAL)
+            if not self.wait_for_drdy():
+                logger.warning("SELFCAL timeout")
+
             logger.info(f"ADC configured: Channel={channel}, Gain={gain}x, "
-                       f"Buffered={buffered}, DataRate={data_rate} SPS")
+                       f"Buffered={buffered}, DataRate={data_rate} SPS, AUTOCAL=on")
             return True
             
         except Exception as e:
@@ -317,8 +323,6 @@ Examples:
     parser.add_argument('--drate', type=float, required=True,
                        choices=[2.5, 5, 10, 15, 25, 30, 50, 60, 100, 500, 1000, 2000, 3750, 7500, 15000, 30000],
                        help='Data rate in samples per second (SPS)')
-    parser.add_argument('--vref', type=float, default=5.0,
-                       help='Reference voltage in volts (default: 5.0V)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
     
@@ -330,6 +334,7 @@ Examples:
     
     # Create ADC controller
     adc = ADS1256Controller()
+    ADC_VREF = 2.5
     
     try:
         # Initialize hardware
@@ -349,10 +354,8 @@ Examples:
         
         if value is not None:
             # Calculate voltage in millivolts
-            # Formula: voltage = (raw_value / 2^23) * VREF / PGA_gain
-            # Convert to millivolts by multiplying by 1000
-            voltage_mv = (value / (2**23)) * args.vref * 1000 / args.gain
-            
+            # Vin = (raw / (2^23 - 1)) * (VREF / PGA)
+            voltage_mv = (value / (2**23 - 1)) * (ADC_VREF * 1000) / args.gain
             # Output both raw value and voltage
             print(f"RAW:{value}")
             print(f"VOLTAGE_MV:{voltage_mv:.3f}")
@@ -361,7 +364,7 @@ Examples:
             print(f"DIFF:{int(bool(args.differential))}")
             if bool(args.differential):
                 print(f"NEG_CHANNEL:{args.neg_channel}")
-            print(f"VREF:{args.vref}")
+            print(f"VREF:{ADC_VREF}")
             
             logger.info(f"Successfully read channel {args.channel}: raw={value}, voltage={voltage_mv:.3f}mV")
             sys.exit(0)  # Success

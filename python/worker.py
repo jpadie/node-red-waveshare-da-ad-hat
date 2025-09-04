@@ -399,15 +399,7 @@ class ADS1256:
         if raw & 0x800000:
             raw -= 0x1000000  # signed 24-bit
             
-        # Convert to mV using user's formula with AUTOCAL: Vin = raw/(2^23-1) * (2.5V / PGA)
-        # Keep LUT hook but default to math per spec.
-        key = (float(drate), int(gain), int(bool(buffered)), int(bool(differential)))
-        if key in self.ALPHA_BETA_TABLE:
-            alpha_mv_per_code, beta_mv = self.ALPHA_BETA_TABLE[key]
-            voltage_mv = alpha_mv_per_code * float(raw) + beta_mv
-        else:
-            voltage_mv = (float(raw) / 8388607.0) * (ADC_VREF * 1000.0) / float(gain)
-            
+        voltage_mv = (float(raw) * 2 * ADC_VREF / (float(gain) * 0x7FFFFF))    
         log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
         return {
             "channel": channel,
