@@ -27,6 +27,10 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     // (5) stdout line buffer to handle chunking
     private stdoutBuffer = '';
 
+    // Linger keep-alive across deploys
+    private lingerTimer: NodeJS.Timeout | null = null;
+    private lingerMs: number = 3000;
+
     constructor(config: any) {
         super();
         this.config = config;
@@ -38,6 +42,12 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     addRef(): void {
         this.refCount++;
         this.debug(`Worker manager reference count: ${this.refCount}`);
+        // Cancel pending linger stop if a new reference arrives
+        if (this.lingerTimer) {
+            clearTimeout(this.lingerTimer);
+            this.lingerTimer = null;
+            this.debug('Cancelled linger stop due to new reference');
+        }
         // Don't start worker here - only start when first request comes in
     }
 
@@ -48,7 +58,21 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         this.refCount--;
         this.debug(`Worker manager reference count: ${this.refCount}`);
         if (this.refCount <= 0) {
-            this.stopWorker();
+            // Linger instead of immediate stop to survive redeploys
+            if (this.lingerTimer) {
+                clearTimeout(this.lingerTimer);
+            }
+            this.lingerTimer = setTimeout(() => {
+                // Only stop if no new refs came in
+                if (this.refCount <= 0) {
+                    this.debug('Linger elapsed; stopping worker');
+                    this.stopWorker();
+                } else {
+                    this.debug('Linger elapsed but refs present; keeping worker');
+                }
+                this.lingerTimer = null;
+            }, this.lingerMs);
+            this.debug(`Scheduled worker stop after linger ${this.lingerMs}ms`);
         }
     }
 
@@ -140,8 +164,13 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             const trimmed = line.trim();
             if (!trimmed) continue;
             try {
-                const response: WorkerResponse = JSON.parse(trimmed);
-                this.handleWorkerResponse(response);
+                const response: any = JSON.parse(trimmed);
+                // Handle unsolicited stream events
+                if (response && !response.id && response.method === 'stream_sample' && response.params) {
+                    this.emit('stream', response.params);
+                    continue;
+                }
+                this.handleWorkerResponse(response as WorkerResponse);
             } catch (error) {
                 this.debug(`Failed to parse worker response: ${(error as Error)?.message ?? String(error)} | line=${trimmed}`);
             }
