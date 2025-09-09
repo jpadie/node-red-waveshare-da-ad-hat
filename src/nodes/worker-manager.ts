@@ -28,8 +28,9 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     private stdoutBuffer = '';
 
     // Linger keep-alive across deploys
+    // Linger disabled temporarily to avoid redeploy races
     private lingerTimer: NodeJS.Timeout | null = null;
-    private lingerMs: number = 3000;
+    private lingerMs: number = 0;
 
     constructor(config: any) {
         super();
@@ -43,11 +44,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         this.refCount++;
         this.debug(`Worker manager reference count: ${this.refCount}`);
         // Cancel pending linger stop if a new reference arrives
-        if (this.lingerTimer) {
-            clearTimeout(this.lingerTimer);
-            this.lingerTimer = null;
-            this.debug('Cancelled linger stop due to new reference');
-        }
+        // linger disabled
         // Don't start worker here - only start when first request comes in
     }
 
@@ -58,21 +55,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         this.refCount--;
         this.debug(`Worker manager reference count: ${this.refCount}`);
         if (this.refCount <= 0) {
-            // Linger instead of immediate stop to survive redeploys
-            if (this.lingerTimer) {
-                clearTimeout(this.lingerTimer);
-            }
-            this.lingerTimer = setTimeout(() => {
-                // Only stop if no new refs came in
-                if (this.refCount <= 0) {
-                    this.debug('Linger elapsed; stopping worker');
-                    this.stopWorker();
-                } else {
-                    this.debug('Linger elapsed but refs present; keeping worker');
-                }
-                this.lingerTimer = null;
-            }, this.lingerMs);
-            this.debug(`Scheduled worker stop after linger ${this.lingerMs}ms`);
+            this.stopWorker();
         }
     }
 

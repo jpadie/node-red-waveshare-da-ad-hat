@@ -357,10 +357,7 @@ class ADS1256:
         self._write_reg(self.REG_DRATE, self.DRATE_VALUES[drate])
         log.info(f"ADC cfg: CH={channel}, NEG={'AINCOM' if not differential else neg_channel}, "
                  f"GAIN={gain}, BUF={buffered}, DRATE={drate}SPS")
-        # 6) Self-calibrate after config changes for offset/gain
-        self._write_cmd(0xF0)  # SELFCAL
-        if not self._wait_drdy(timeout_s=2.0):
-            log.warning("SELFCAL DRDY timeout")
+        # Note: AUTOCAL (ACAL) is enabled in STATUS; skip manual SELFCAL here
 
     def read_channel(self, channel: int, *, gain: int = 1, drate: float = 10.0,
                      differential: bool = False, neg_channel: int = 8,

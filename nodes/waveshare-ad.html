@@ -8,8 +8,9 @@
             differential: {value: false},
             negChannel: {value: 1},
             gain: {value: 1},
-            buffered: {value: false},
-            drate: {value: 10.0}
+            buffered: {value: true},
+            drate: {value: 5.0},
+            averageCount: {value: 3}
         },
         inputs: 1,
         outputs: 1,
@@ -87,15 +88,15 @@
 
     <div class="form-row">
         <label for="node-input-buffered"><i class="fa fa-filter"></i> Buffered</label>
-        <input type="checkbox" id="node-input-buffered">
-        <div class="help-info">Enable ADS1256 input buffer (default off)</div>
+        <input type="checkbox" id="node-input-buffered" checked>
+        <div class="help-info">Enable ADS1256 input buffer (recommended for noise reduction)</div>
     </div>
     
     <div class="form-row">
         <label for="node-input-drate"><i class="fa fa-tachometer-alt"></i> Data Rate (SPS)</label>
         <select id="node-input-drate">
             <option value="2.5">2.5 SPS</option>
-            <option value="5">5 SPS</option>
+            <option value="5" selected>5 SPS</option>
             <option value="10">10 SPS</option>
             <option value="15">15 SPS</option>
             <option value="30">30 SPS</option>
@@ -110,8 +111,14 @@
             <option value="30000">30000 SPS</option>
         </select>
     </div>
-    
-    
+
+    <div class="form-row">
+        <label for="node-input-averageCount"><i class="fa fa-calculator"></i> Average Count</label>
+        <input type="number" id="node-input-averageCount" min="1" max="10" value="3">
+        <div class="help-info">Number of readings to average for noise reduction</div>
+    </div>
+
+
 </script>
 <style>
 .form-row > input[type="checkbox"] {
@@ -137,7 +144,18 @@
     <ul>
         <li><strong>ADC Channel:</strong> Choose from 8 single-ended channels (0-7)</li>
         <li><strong>Gain:</strong> Programmable gain amplifier setting (1x to 64x)</li>
+        <li><strong>Buffered:</strong> Enable input buffer for noise reduction (recommended)</li>
         <li><strong>Data Rate:</strong> Sampling rate from 2.5 to 30,000 samples per second (SPS)</li>
+        <li><strong>Average Count:</strong> Number of readings to average (1-10, default 3)</li>
+    </ul>
+
+    <h3>pH Sensor Configuration</h3>
+    <p>For pH sensors, the following defaults are recommended:</p>
+    <ul>
+        <li><strong>Buffered:</strong> ON (reduces noise)</li>
+        <li><strong>Data Rate:</strong> 5 SPS (stable readings)</li>
+        <li><strong>Average Count:</strong> 3-5 readings</li>
+        <li><strong>Gain:</strong> 1x (for 0-5V pH sensor range)</li>
     </ul>
     
     <h3>Outputs</h3>
