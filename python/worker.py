@@ -441,8 +441,9 @@ class ADS1256:
         if raw & 0x800000:
             raw -= 0x1000000  # signed 24-bit
             
-        voltage = (float(raw) * 2 * ADC_VREF / (float(gain) * 0x7FFFFF))    
-        voltage_mv = voltage * 1000
+        # Vin = raw/(2^23-1) * (Vref / PGA)
+        voltage = (float(raw) / 0x7FFFFF) * (ADC_VREF / float(gain))
+        voltage_mv = voltage * 1000.0
         log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
         return {
             "channel": channel,
@@ -670,7 +671,7 @@ class Worker:
                     if raw & 0x800000:
                         raw -= 0x1000000
                     ADC_VREF = 2.5
-                    voltage = (float(raw) * 2 * ADC_VREF / (float(gain) * 0x7FFFFF))
+                    voltage = (float(raw) / 0x7FFFFF) * (ADC_VREF / float(gain))
                     sample = {
                         "streamId": stream_id,
                         "channel": ch,
