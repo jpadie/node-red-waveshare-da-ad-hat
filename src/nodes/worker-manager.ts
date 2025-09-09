@@ -32,6 +32,10 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     private lingerTimer: NodeJS.Timeout | null = null;
     private lingerMs: number = 0;
 
+    // Stop gating to avoid overlapping workers during redeploy
+    private stopping: boolean = false;
+    private stoppingPromise: Promise<void> | null = null;
+
     constructor(config: any) {
         super();
         this.config = config;
@@ -67,6 +71,11 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             this.debug('Worker already running');
             return;
         }
+        if (this.stopping && this.stoppingPromise) {
+            this.debug('Worker is stopping; delaying start');
+            // Defer start slightly; request() will ensure start before use
+            return;
+        }
 
         try {
             const p = path.join(__dirname, '..', 'python', 'worker.py');
@@ -94,6 +103,15 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             this.worker.on('exit', (code, signal) => {
                 this.log(`Worker exited with code ${code}, signal ${signal}`);
                 this.worker = null;
+                if (this.stopping && this.stoppingPromise) {
+                    this.stopping = false;
+                    const done = this.stoppingPromise;
+                    this.stoppingPromise = null;
+                    // Resolve async on next tick
+                    setTimeout(() => {
+                        try { (done as any).resolve?.(); } catch {}
+                    }, 0);
+                }
                 this.emit('workerExit', { code, signal });
 
                 // Reject all pending requests
@@ -119,6 +137,13 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         const proc = this.worker;
         if (!proc) return;
 
+        if (!this.stopping) {
+            this.stopping = true;
+            let resolveFn: () => void;
+            this.stoppingPromise = new Promise<void>((resolve) => { resolveFn = resolve; }) as Promise<void> & { resolve?: () => void };
+            (this.stoppingPromise as any).resolve = resolveFn!;
+        }
+
         this.log('Stopping Python worker');
 
         // Send SIGTERM first
@@ -131,8 +156,6 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
                 proc.kill('SIGKILL');
             }
         }, 2000);
-
-        this.worker = null;
     }
 
     /**
@@ -242,6 +265,11 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
      * (4) Start worker unconditionally if not running; refCount is lifecycle, not a hard gate
      */
     async request<T>(request: Omit<WorkerRequest, 'id'>): Promise<T> {
+        // If a stop is in progress, wait for it to complete to avoid overlap
+        if (this.stopping && this.stoppingPromise) {
+            this.debug('Awaiting worker stop before starting new worker');
+            try { await this.stoppingPromise; } catch {}
+        }
         if (!this.worker) {
             this.startWorker();
         }
