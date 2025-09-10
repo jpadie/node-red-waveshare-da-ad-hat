@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# @version @jpadie/waveshare-da-ad-hat v1.0.51 2025-09-10T18:19:31.241Z commit 3e2ec87
+
 # -*- coding:utf-8 -*-
 """
 Waveshare DA-AD HAT ADC Control Script

@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# @version @jpadie/waveshare-da-ad-hat v1.0.51 2025-09-10T18:19:31.241Z commit 3e2ec87
+
 """
 Waveshare DA-AD HAT Worker (JSON-RPC over stdio)
 - ADC (ADS1256) flow aligned to the working one-shot ad.py paradigm
@@ -599,6 +600,16 @@ class Worker:
         seq = 0
         # Cache last written register state to avoid redundant writes
         last_cfg: Dict[str, Any] = {"ch": None, "neg": None, "gain": None, "drate": None, "buffered": None, "differential": None}
+        # Ensure hardware initialized before streaming
+        try:
+            self.adc._ensure_init()
+        except Exception as e:
+            self._notify_stream_sample({
+                "streamId": stream_id,
+                "error": str(e),
+                "ts": time.time(),
+            })
+            return
         while self.stream_running:
             for ch_cfg in channels:
                 if not self.stream_running:
@@ -623,16 +634,16 @@ class Worker:
                         last_cfg["buffered"] == buffered and
                         last_cfg["differential"] == differential
                     ):
-                    with self.rm.lock:
-                        self.adc._configure(ch, gain, buffered, drate, differential, neg)
-                        last_cfg = {
-                            "ch": ch,
-                            "neg": neg if differential else 8,
-                            "gain": gain,
-                            "drate": drate,
-                            "buffered": buffered,
-                            "differential": differential,
-                        }
+                        with self.rm.lock:
+                            self.adc._configure(ch, gain, buffered, drate, differential, neg)
+                            last_cfg = {
+                                "ch": ch,
+                                "neg": neg if differential else 8,
+                                "gain": gain,
+                                "drate": drate,
+                                "buffered": buffered,
+                                "differential": differential,
+                            }
 
                     status_reg_val = None
                     if bool(ch_cfg.get("debugStatus", False)):

@@ -194,7 +194,11 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     // Streaming & Subscriptions
     // -----------------------------
     subscribeAD(nodeId: string, cfg: ChannelConfig, handler: (sample: any) => void): void {
+        const wasEmpty = this.subscriptions.size === 0;
         this.subscriptions.set(nodeId, { cfg, handler });
+        if (wasEmpty) {
+            this.addRef();
+        }
         this.ensureStreamMatchesSubscriptions();
     }
 
@@ -214,6 +218,12 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     unsubscribeAD(nodeId: string): void {
         this.subscriptions.delete(nodeId);
         this.ensureStreamMatchesSubscriptions();
+        if (this.subscriptions.size === 0) {
+            // No more subscribers: stop stream and release ref
+            (async () => { try { await this.request({ jsonrpc: '2.0', method: 'stop_stream', params: {} }); } catch {} })();
+            this.streamActive = false;
+            this.removeRef();
+        }
     }
 
     private async ensureStreamMatchesSubscriptions(): Promise<void> {

@@ -13,6 +13,8 @@
     "clean": "rm -rf lib",
     "copy-nodes": "cp lib/nodes/*.js nodes/",
     "prepublishOnly": "npm run clean && npm run build && node ./scripts/add-version-banners.js",
+    "test:mock-stream": "node ./tests/mock-stream-smoke.js",
+    "test:throughput": "node ./tests/throughput-estimate.js",
     "test": "node test-python.js",
     "test:worker": "node test-worker.js",
     "test:build": "npm run build && npm run test"

@@ -1,11 +1,9 @@
 #!/usr/bin/env node
-/*
- Adds a single-line @version banner at the top of published files.
- - Targets: lib/**/*, nodes/**/*, python/**/*
- - File types: .js, .ts, .d.ts, .html, .py
- - Skips: source maps (*.map) and non-targeted types
- - Idempotent: updates existing banner if present; inserts otherwise
-*/
+// Adds a single-line @version banner at the top of published files.
+// Targets: lib/, nodes/, python/ (all files we publish)
+// File types: .js, .ts, .d.ts, .html, .py
+// Skips: source maps (*.map) and non-targeted types
+// Idempotent: updates existing banner if present; inserts otherwise
 
 const fs = require('fs');
 const path = require('path');
