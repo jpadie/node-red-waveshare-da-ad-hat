@@ -5,6 +5,28 @@ import { WorkerRequest, WorkerResponse, WorkerManager as IWorkerManager } from '
 import { EventEmitter } from 'events';
 import * as path from 'node:path';
 
+type ChannelConfig = {
+    ch: number;
+    differential?: boolean;
+    neg?: number;
+    gain?: number;
+    drate?: number;
+    buffered?: boolean;
+};
+
+type StreamSample = {
+    streamId: string;
+    seq?: number;
+    channel: number;
+    negChannel?: number | null;
+    differential: boolean;
+    buffered: boolean;
+    raw: number;
+    gain: number;
+    drate: number;
+    ts: number;
+};
+
 class WorkerManager extends EventEmitter implements IWorkerManager {
     private worker: ChildProcess | null = null;
     private requestQueue: Array<{
@@ -36,9 +58,18 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     private stopping: boolean = false;
     private stoppingPromise: Promise<void> | null = null;
 
+    // Streaming/subscriptions
+    private subscriptions: Map<string, { cfg: ChannelConfig; handler: (sample: any) => void } > = new Map();
+    private streamActive: boolean = false;
+    private streamId: string = 'global';
+
     constructor(config: any) {
         super();
         this.config = config;
+        // Dispatch stream samples to subscribers with conversion
+        this.on('stream', (params: StreamSample) => {
+            this.dispatchStreamSample(params);
+        });
     }
 
     /**
@@ -103,6 +134,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             this.worker.on('exit', (code, signal) => {
                 this.log(`Worker exited with code ${code}, signal ${signal}`);
                 this.worker = null;
+                this.streamActive = false;
                 if (this.stopping && this.stoppingPromise) {
                     this.stopping = false;
                     const done = this.stoppingPromise;
@@ -156,6 +188,121 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
                 proc.kill('SIGKILL');
             }
         }, 2000);
+    }
+
+    // -----------------------------
+    // Streaming & Subscriptions
+    // -----------------------------
+    subscribeAD(nodeId: string, cfg: ChannelConfig, handler: (sample: any) => void): void {
+        this.subscriptions.set(nodeId, { cfg, handler });
+        this.ensureStreamMatchesSubscriptions();
+    }
+
+    updateSubscription(nodeId: string, cfg: ChannelConfig): void {
+        const existing = this.subscriptions.get(nodeId);
+        if (existing) {
+            existing.cfg = cfg;
+            this.subscriptions.set(nodeId, existing);
+            this.ensureStreamMatchesSubscriptions();
+        } else {
+            // If no existing, treat as new
+            // eslint-disable-next-line @typescript-eslint/no-empty-function
+            this.subscribeAD(nodeId, cfg, () => {});
+        }
+    }
+
+    unsubscribeAD(nodeId: string): void {
+        this.subscriptions.delete(nodeId);
+        this.ensureStreamMatchesSubscriptions();
+    }
+
+    private async ensureStreamMatchesSubscriptions(): Promise<void> {
+        // Build unique channel list from subscriptions
+        const channels: ChannelConfig[] = [];
+        const keySet = new Set<string>();
+        for (const [, sub] of this.subscriptions) {
+            const cfg = {
+                ch: sub.cfg.ch,
+                differential: !!sub.cfg.differential,
+                neg: sub.cfg.neg ?? 8,
+                gain: sub.cfg.gain ?? 1,
+                drate: sub.cfg.drate ?? 10.0,
+                buffered: !!sub.cfg.buffered,
+            } as ChannelConfig;
+            const key = `${cfg.ch}|${cfg.differential?'1':'0'}|${cfg.neg}|${cfg.gain}|${cfg.drate}|${cfg.buffered?'1':'0'}`;
+            if (!keySet.has(key)) {
+                keySet.add(key);
+                channels.push(cfg);
+            }
+        }
+
+        if (channels.length === 0) {
+            if (this.streamActive) {
+                try { await this.request({ jsonrpc: '2.0', method: 'stop_stream', params: {} }); } catch {}
+            }
+            this.streamActive = false;
+            return;
+        }
+
+        // Start or reconfigure stream
+        try {
+            if (this.streamActive) {
+                try { await this.request({ jsonrpc: '2.0', method: 'stop_stream', params: {} }); } catch {}
+            }
+            await this.request({
+                jsonrpc: '2.0',
+                method: 'start_stream',
+                params: {
+                    streamId: this.streamId,
+                    mode: 'round_robin',
+                    channels: channels.map(c => ({
+                        ch: c.ch,
+                        differential: !!c.differential,
+                        neg: c.neg ?? 8,
+                        gain: c.gain ?? 1,
+                        drate: c.drate ?? 10.0,
+                        buffered: !!c.buffered
+                    }))
+                }
+            });
+            this.streamActive = true;
+        } catch (error) {
+            this.debug(`Failed to start stream: ${(error as Error)?.message ?? String(error)}`);
+            this.streamActive = false;
+        }
+    }
+
+    private dispatchStreamSample(sample: StreamSample): void {
+        // Match to subscribers by channel and pairing
+        for (const [, sub] of this.subscriptions) {
+            const cfg = sub.cfg;
+            const neg = cfg.differential ? (cfg.neg ?? 8) : null;
+            const sampleNeg = sample.differential ? (sample.negChannel ?? null) : null;
+            const channelMatch = sample.channel === cfg.ch;
+            const diffMatch = !!sample.differential === !!cfg.differential;
+            const negMatch = (neg ?? null) === (sampleNeg ?? null);
+            const bufferedMatch = !!sample.buffered === !!cfg.buffered;
+            if (channelMatch && diffMatch && negMatch && bufferedMatch) {
+                const converted = this.convertSample(sample);
+                try {
+                    sub.handler(converted);
+                } catch (e) {
+                    this.debug(`Subscriber handler error: ${(e as Error)?.message ?? String(e)}`);
+                }
+            }
+        }
+    }
+
+    private convertSample(sample: StreamSample): any {
+        const ADC_VREF = 2.5;
+        const denom = Math.pow(2, 23) - 1;
+        const gain = sample.gain || 1;
+        const voltage = (sample.raw / denom) * ((2 * ADC_VREF) / gain);
+        return {
+            ...sample,
+            voltage,
+            voltage_mv: voltage * 1000.0
+        };
     }
 
     /**

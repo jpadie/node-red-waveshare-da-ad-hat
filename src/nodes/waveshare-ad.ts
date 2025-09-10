@@ -9,6 +9,7 @@ module.exports = function(RED: any) {
         RED.nodes.createNode(this, config);
         
         const node = this;
+        let subscriptionId: string | null = null;
         
         // Handle node removal
         node.on('close', () => {
@@ -16,6 +17,10 @@ module.exports = function(RED: any) {
             if (node.hasRef) {
                 workerManager.removeRef();
                 node.hasRef = false;
+            }
+            if (subscriptionId) {
+                workerManager.unsubscribeAD(subscriptionId);
+                subscriptionId = null;
             }
         });
 
@@ -67,42 +72,39 @@ module.exports = function(RED: any) {
                     throw new Error('Invalid data rate');
                 }
 
-                // Send request to worker
-                const result = await workerManager.request({
-                    jsonrpc: '2.0',
-                    method: 'read_adc',
-                    params: {
-                        channel: channel,
-                        differential: differential,
-                        negChannel: negChannel,
-                        buffered: buffered,
-                        gain: gain,
-                        drate: drate
-                    }
-                });
-
-                // Update message with result
-                msg.payload = {
-                    success: true,
-                    channel: result.channel,
-                    negChannel: result.negChannel,
-                    differential: !!result.differential,
-                    buffered: !!result.buffered,
-                    raw: result.raw,
-                    voltage_mv: result.voltage_mv,
-                    gain: result.gain,
-                    drate: result.drate,
-                    timestamp: new Date().toISOString()
+                // Create/update subscription for streaming
+                const subId = subscriptionId || `${node.id}`;
+                const handler = (sample: any) => {
+                    const payload = {
+                        success: true,
+                        channel: sample.channel,
+                        negChannel: sample.negChannel,
+                        differential: !!sample.differential,
+                        buffered: !!sample.buffered,
+                        raw: sample.raw,
+                        voltage_mv: sample.voltage_mv,
+                        voltage: sample.voltage,
+                        gain: sample.gain,
+                        drate: sample.drate,
+                        ts: sample.ts
+                    };
+                    node.status({
+                        fill: 'green',
+                        shape: 'dot',
+                        text: `${payload.differential ? `Ch${payload.channel}-Ch${payload.negChannel}` : `Ch${payload.channel}`}: ${payload.voltage_mv?.toFixed?.(2) ?? ''}mV`
+                    });
+                    node.send({ ...msg, payload });
                 };
 
-                // Update node status
-                node.status({
-                    fill: 'green',
-                    shape: 'dot',
-                    text: `${differential ? `Ch${channel}-Ch${negChannel}` : `Ch${channel}`}: ${result.voltage_mv}mV`
-                });
-
-                node.send(msg);
+                workerManager.subscribeAD(subId, {
+                    ch: channel,
+                    differential: differential,
+                    neg: negChannel,
+                    gain: gain,
+                    drate: drate,
+                    buffered: buffered
+                }, handler);
+                subscriptionId = subId;
 
             } catch (error: any) {
                 const errorMessage = error?.message || 'Unknown error';
