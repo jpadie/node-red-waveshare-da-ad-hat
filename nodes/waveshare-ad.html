@@ -4,6 +4,7 @@
         color: '#C0DEED',
         defaults: {
             name: {value: ''},
+            configRef: { value: '', type: 'waveshare-ad-config' },
             channel: {value: 0},
             differential: {value: false},
             negChannel: {value: 1},
@@ -40,6 +41,13 @@
         <input type="text" id="node-input-name" placeholder="Waveshare AD">
     </div>
     
+    <div class="form-row">
+        <label for="node-input-configRef"><i class="fa fa-cog"></i> Config</label>
+        <input type="text" id="node-input-configRef">
+    </div>
+
+    <div class="form-tips">When a config is selected, this node subscribes to its channel set and streams continuously.</div>
+
     <div class="form-row">
         <label for="node-input-channel"><i class="fa fa-plug"></i> ADC Channel</label>
         <select id="node-input-channel">
