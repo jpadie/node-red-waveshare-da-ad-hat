@@ -7,12 +7,12 @@
   "description": "Custom Node-RED nodes for the Waveshare DA-AD HAT with working drivers",
   "main": "nodes/waveshare-da.js",
   "scripts": {
-    "build": "tsc && npm run copy-nodes",
+    "build": "tsc && npm run copy-nodes && node ./scripts/add-version-banners.js",
     "build:watch": "tsc --watch",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build\"",
     "clean": "rm -rf lib",
     "copy-nodes": "cp lib/nodes/*.js nodes/",
-    "prepublishOnly": "npm run clean && npm run build",
+    "prepublishOnly": "npm run clean && npm run build && node ./scripts/add-version-banners.js",
     "test": "node test-python.js",
     "test:worker": "node test-worker.js",
     "test:build": "npm run build && npm run test"

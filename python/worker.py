@@ -89,7 +89,7 @@ class WorkerConfig:
 
     spi_bus: int = 0
     spi_dev: int = 0
-    spi_speed_hz: int = 1_000_000  # match ad.py (1 MHz)
+    spi_speed_hz: int = 1_200_000  # Pi 4B-friendly default; overridable via WS_SPI_HZ
 
     # Watchdog & timeouts
     idle_shutdown_s: int = 300      # generous; worker stays alive while busy
@@ -163,7 +163,11 @@ class SPIResourceManager:
             s = spidev.SpiDev()
             s.open(self.cfg.spi_bus, self.cfg.spi_dev)
             # Default to ADC-friendly speed; individual ops may override
-            s.max_speed_hz = self.cfg.spi_speed_hz
+            try:
+                env_hz = int(os.environ.get("WS_SPI_HZ", "0"))
+            except Exception:
+                env_hz = 0
+            s.max_speed_hz = env_hz if env_hz > 0 else self.cfg.spi_speed_hz
             s.mode = 0b01
             s.lsbfirst = False
             s.cshigh = False
@@ -171,7 +175,7 @@ class SPIResourceManager:
             self.spi = s
             log.info(
                 f"SPI open bus={self.cfg.spi_bus}, dev={self.cfg.spi_dev}, "
-                f"speed={self.cfg.spi_speed_hz}Hz, mode=1, no_cs=True"
+                f"speed={self.spi.max_speed_hz}Hz, mode=1, no_cs=True"
             )
         except Exception as e:
             log.error(f"SPI open failed: {e}")
@@ -313,7 +317,7 @@ class ADS1256:
         while time.time() < deadline:
             if GPIO.input(self.cfg.adc_drdy_pin) == GPIO.LOW:
                 return True
-            time.sleep(0.001)
+            time.sleep(0.0005)
         return False
 
     def _reset(self) -> None:
@@ -374,8 +378,6 @@ class ADS1256:
                 raise ValueError("neg_channel 0..7 in differential mode")
             if neg_channel == channel:
                 raise ValueError("pos and neg must differ")
-        
-        ADC_VREF = 2.5  # fixed by HAT
 
         # init once
         self._ensure_init()
@@ -392,13 +394,12 @@ class ADS1256:
                 except Exception as e:
                     log.warning(f"STATUS readback failed: {e}")
 
-            # initial DRDY
-            log.info("Waiting initial DRDY...")
-            if not self._wait_drdy(timeout_s=10.0):
+            # initial DRDY (timeout derived from drate)
+            dyn_timeout = max(0.1, (3.0 / float(drate)) + 0.01)
+            if not self._wait_drdy(timeout_s=dyn_timeout):
                 raise TimeoutError("initial DRDY timeout")
 
             # SYNC/WAKEUP (kick conversion)
-            log.info("SYNC/WAKEUP")
             GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
             try:
                 self.rm.spi.writebytes([self.CMD_SYNC])
@@ -408,28 +409,23 @@ class ADS1256:
                 GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
             # wait for DRDY, then discard first conversion
-            log.info("Discarding first conversion...")
-            if not self._wait_drdy(timeout_s=10.0):
+            if not self._wait_drdy(timeout_s=dyn_timeout):
                 raise TimeoutError("discard DRDY timeout")
             GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
             try:
                 self.rm.spi.writebytes([self.CMD_RDATA])
-                time.sleep(0.01)
                 _ = self.rm.spi.readbytes(3)  # discard
             finally:
                 GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
 
             # wait for DRDY again for the valid conversion
-            log.info("Waiting for valid conversion DRDY...")
-            if not self._wait_drdy(timeout_s=10.0):
+            if not self._wait_drdy(timeout_s=dyn_timeout):
                 raise TimeoutError("valid conversion DRDY timeout")
 
             # now read the valid result
-            log.info("RDATA + readbytes(3)")
             GPIO.output(self.cfg.adc_cs_pin, GPIO.LOW)
             try:
                 self.rm.spi.writebytes([self.CMD_RDATA])
-                time.sleep(0.01)
                 data = self.rm.spi.readbytes(3)
             finally:
                 GPIO.output(self.cfg.adc_cs_pin, GPIO.HIGH)
@@ -441,20 +437,16 @@ class ADS1256:
         if raw & 0x800000:
             raw -= 0x1000000  # signed 24-bit
             
-        # Vin = raw/(2^23-1) * (Vref / PGA)
-        voltage = (float(raw) / 0x7FFFFF) * (ADC_VREF / float(gain))
-        voltage_mv = voltage * 1000.0
-        log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
+        # Raw-only payload; conversion moved to Node worker
         return {
             "channel": channel,
             "negChannel": None if (not differential) else neg_channel,
             "differential": differential,
             "buffered": buffered,
             "raw": raw,
-            "voltage_mv": round(voltage_mv, 3),
-            "voltage": round(voltage, 5),
             "gain": gain,
             "drate": drate,
+            "ts": time.time(),
             **({"statusReg": status_reg_val} if debugStatusReadback and (status_reg_val is not None) else {}),
         }
 
@@ -545,6 +537,8 @@ class Worker:
                 return {"jsonrpc": "2.0", "id": _id, "result": ret}
 
             if method == "read_adc":
+                if self.stream_running:
+                    raise RuntimeError("read_adc unavailable while streaming is active")
                 ch = int(params["channel"])  # required
                 ret, err = self._with_timeout(
                     self.adc.read_channel,
@@ -561,7 +555,7 @@ class Worker:
                 return {"jsonrpc": "2.0", "id": _id, "result": ret}
 
             if method == "start_stream":
-                # params: { streamId: str, channels: [{ch, differential, neg, gain, drate, buffered}], emitRateHz?: float }
+                # params: { streamId: str, mode:"round_robin", channels: [{ch, differential, neg, gain, drate, buffered}] }
                 if self.stream_running:
                     raise RuntimeError("Stream already running")
                 p = params
@@ -570,7 +564,7 @@ class Worker:
                 self.stream_cfg = {
                     "streamId": p.get("streamId") or "default",
                     "channels": p["channels"],
-                    "emitRateHz": float(p.get("emitRateHz", 1.0)),
+                    "mode": p.get("mode", "round_robin"),
                 }
                 self.stream_running = True
                 self.stream_thread = threading.Thread(target=self._stream_loop, daemon=True)
@@ -602,10 +596,10 @@ class Worker:
         cfg = self.stream_cfg or {}
         stream_id = cfg.get("streamId", "default")
         channels = cfg.get("channels", [])
-        emit_rate_hz = float(cfg.get("emitRateHz", 1.0))
-        period_s = 1.0 / emit_rate_hz if emit_rate_hz > 0 else 1.0
+        seq = 0
+        # Cache last written register state to avoid redundant writes
+        last_cfg: Dict[str, Any] = {"ch": None, "neg": None, "gain": None, "drate": None, "buffered": None, "differential": None}
         while self.stream_running:
-            loop_start = time.time()
             for ch_cfg in channels:
                 if not self.stream_running:
                     break
@@ -617,9 +611,28 @@ class Worker:
                     drate = float(ch_cfg.get("drate", 10.0))
                     buffered = bool(ch_cfg.get("buffered", False))
 
-                    # Configure MUX and regs under lock, but do not hold while waiting for DRDY
+                    # dynamic timeout from drate
+                    dyn_timeout = max(0.1, (3.0 / float(drate)) + 0.01)
+
+                    # Configure only when changed (reduces bus traffic)
+                    if not (
+                        last_cfg["ch"] == ch and
+                        last_cfg["neg"] == (neg if differential else 8) and
+                        last_cfg["gain"] == gain and
+                        last_cfg["drate"] == drate and
+                        last_cfg["buffered"] == buffered and
+                        last_cfg["differential"] == differential
+                    ):
                     with self.rm.lock:
                         self.adc._configure(ch, gain, buffered, drate, differential, neg)
+                        last_cfg = {
+                            "ch": ch,
+                            "neg": neg if differential else 8,
+                            "gain": gain,
+                            "drate": drate,
+                            "buffered": buffered,
+                            "differential": differential,
+                        }
 
                     status_reg_val = None
                     if bool(ch_cfg.get("debugStatus", False)):
@@ -630,7 +643,7 @@ class Worker:
                             log.warning(f"[stream {stream_id}] STATUS readback failed: {e}")
 
                     # initial DRDY and SYNC/WAKEUP
-                    if not self.adc._wait_drdy(timeout_s=10.0):
+                    if not self.adc._wait_drdy(timeout_s=dyn_timeout):
                         raise TimeoutError("initial DRDY timeout")
                     with self.rm.lock:
                         GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.LOW)
@@ -642,25 +655,23 @@ class Worker:
                             GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.HIGH)
 
                     # Discard first conversion
-                    if not self.adc._wait_drdy(timeout_s=10.0):
+                    if not self.adc._wait_drdy(timeout_s=dyn_timeout):
                         raise TimeoutError("discard DRDY timeout")
                     with self.rm.lock:
                         GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.LOW)
                         try:
                             self.rm.spi.writebytes([self.adc.CMD_RDATA])
-                            time.sleep(0.01)
                             _ = self.rm.spi.readbytes(3)
                         finally:
                             GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.HIGH)
 
                     # Valid conversion
-                    if not self.adc._wait_drdy(timeout_s=10.0):
+                    if not self.adc._wait_drdy(timeout_s=dyn_timeout):
                         raise TimeoutError("valid conversion DRDY timeout")
                     with self.rm.lock:
                         GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.LOW)
                         try:
                             self.rm.spi.writebytes([self.adc.CMD_RDATA])
-                            time.sleep(0.01)
                             data = self.rm.spi.readbytes(3)
                         finally:
                             GPIO.output(self.adc.cfg.adc_cs_pin, GPIO.HIGH)
@@ -670,17 +681,14 @@ class Worker:
                     raw = (data[0] << 16) | (data[1] << 8) | data[2]
                     if raw & 0x800000:
                         raw -= 0x1000000
-                    ADC_VREF = 2.5
-                    voltage = (float(raw) / 0x7FFFFF) * (ADC_VREF / float(gain))
                     sample = {
                         "streamId": stream_id,
+                        "seq": seq,
                         "channel": ch,
                         "negChannel": None if (not differential) else neg,
                         "differential": differential,
                         "buffered": buffered,
                         "raw": raw,
-                        "voltage_mv": round(voltage * 1000.0, 3),
-                        "voltage": round(voltage, 5),
                         "gain": gain,
                         "drate": drate,
                         "ts": time.time(),
@@ -688,17 +696,14 @@ class Worker:
                     if status_reg_val is not None:
                         sample["statusReg"] = status_reg_val
                     self._notify_stream_sample(sample)
+                    seq += 1
                 except Exception as e:
                     self._notify_stream_sample({
                         "streamId": stream_id,
                         "error": str(e),
                         "ts": time.time(),
                     })
-            # pace to target emit rate (per full channel set)
-            elapsed = time.time() - loop_start
-            sleep_rem = period_s - elapsed
-            if sleep_rem > 0:
-                time.sleep(sleep_rem)
+            # No pacing: stream at DRDY pace
             
     def run(self):
         log.info("Worker started; awaiting requests")
