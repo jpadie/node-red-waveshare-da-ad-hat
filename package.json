@@ -1,6 +1,6 @@
 {
   "name": "@jpadie/waveshare-da-ad-hat",
-  "version": "1.0.59",
+  "version": "1.0.60",
   "publishConfig": {
     "access": "public"
   },
