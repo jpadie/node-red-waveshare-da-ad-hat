@@ -1,0 +1,52 @@
+<!-- @version @jpadie/waveshare-da-ad-hat v1.0.54 2025-09-11T10:04:12.611Z commit 68b7dbb -->
+<script type="text/javascript">
+    RED.nodes.registerType('waveshare-ad-config',{
+        category: 'config',
+        defaults: {
+            name: { value: '' },
+            mode: { value: 'round_robin' },
+            channels: { value: [] },
+            channelsJson: { value: '' }
+        },
+        label: function() {
+            return this.name || 'Waveshare AD Config';
+        },
+        oneditprepare: function() {
+            try {
+                if (Array.isArray(this.channels) && this.channels.length) {
+                    $('#node-config-input-channelsJson').val(JSON.stringify(this.channels));
+                }
+            } catch (e) {}
+        },
+        oneditsave: function() {
+            var raw = $('#node-config-input-channelsJson').val();
+            var arr = [];
+            try {
+                var parsed = JSON.parse(String(raw || '[]'));
+                if (Array.isArray(parsed)) arr = parsed;
+            } catch (e) {
+                arr = [];
+            }
+            (this).channels = arr;
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="waveshare-ad-config">
+    <div class="form-row">
+        <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-config-input-name"/>
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-mode"><i class="fa fa-random"></i> Mode</label>
+        <select id="node-config-input-mode">
+            <option value="round_robin" selected>Round-robin</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-channelsJson"><i class="fa fa-list"></i> Channels JSON</label>
+        <input type="text" id="node-config-input-channelsJson" placeholder='[{"ch":0,"differential":false,"neg":8,"gain":1,"drate":10,"buffered":true}]'>
+        <div class="help">Define an array of channel configs: { ch, differential?, neg?, gain?, drate?, buffered? }</div>
+    </div>
+</script>
+
