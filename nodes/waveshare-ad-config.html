@@ -1,4 +1,4 @@
-<!-- @version @jpadie/waveshare-da-ad-hat v1.0.57 2025-09-11T17:39:33.632Z commit e714ee3 -->
+<!-- @version @jpadie/waveshare-da-ad-hat v1.0.58 2025-09-11T20:52:26.512Z commit 50d3e50 -->
 <script type="text/javascript">
     RED.nodes.registerType('waveshare-ad-config',{
         category: 'config',
@@ -12,22 +12,61 @@
             return this.name || 'Waveshare AD Config';
         },
         oneditprepare: function() {
-            try {
-                if (Array.isArray(this.channels) && this.channels.length) {
-                    $('#node-config-input-channelsJson').val(JSON.stringify(this.channels));
+            var $list = $('#nr-ws-adcfg-list');
+            function entryRow(entry) {
+                var row = $('<div class=\"nr-ws-adcfg-row\"></div>');
+                var $ch = $('<select class=\"ch\"></select>');
+                for (var i=0;i<8;i++) $ch.append('<option value=\"'+i+'\">'+i+'</option>');
+                var $diff = $('<label class=\"padL\"><input type=\"checkbox\" class=\"diff\"> Differential</label>');
+                var $negWrap = $('<span class=\"padL\">-Ch </span>');
+                var $neg = $('<select class=\"neg\"></select>');
+                for (var j=0;j<8;j++) $neg.append('<option value=\"'+j+'\">'+j+'</option>');
+                $negWrap.append($neg);
+                var $gainLbl = $('<span class=\"padL\">Gain </span>');
+                var $gain = $('<select class=\"gain\"><option>1</option><option>2</option><option>4</option><option>8</option><option>16</option><option>32</option><option>64</option></select>');
+                var $drLbl = $('<span class=\"padL\">SPS </span>');
+                var $dr = $('<select class=\"drate\"><option>2.5</option><option>5</option><option>10</option><option>15</option><option>25</option><option>30</option><option>50</option><option>60</option><option>100</option><option>500</option><option>1000</option><option>2000</option><option>3750</option><option>7500</option><option>15000</option><option>30000</option></select>');
+                var $buf = $('<label class=\"padL\"><input type=\"checkbox\" class=\"buffered\"> Buffered</label>');
+                var $del = $('<button type=\"button\" class=\"red-ui-button red-ui-button-small padL\">Delete</button>').on('click', function(){ row.remove(); syncJson(); });
+                function apply(entry) {
+                    $ch.val(String(entry && entry.ch != null ? entry.ch : 0));
+                    var isDiff = !!(entry && entry.differential);
+                    $diff.find('input.diff').prop('checked', isDiff);
+                    $neg.val(String(entry && entry.neg != null ? entry.neg : 8));
+                    $gain.val(String(entry && entry.gain != null ? entry.gain : 1));
+                    $dr.val(String(entry && entry.drate != null ? entry.drate : 10));
+                    $buf.find('input.buffered').prop('checked', !!(entry && entry.buffered));
+                    toggleNeg();
                 }
-            } catch (e) {}
+                function toggleNeg() { var isDiff = $diff.find('input.diff').is(':checked'); $negWrap.toggle(isDiff); }
+                $diff.find('input.diff').on('change', function(){ toggleNeg(); syncJson(); });
+                $ch.on('change', syncJson); $neg.on('change', syncJson); $gain.on('change', syncJson); $dr.on('change', syncJson); $buf.find('input.buffered').on('change', syncJson);
+                row.append($('<span>Ch </span>')).append($ch).append($diff).append($negWrap).append($gainLbl).append($gain).append($drLbl).append($dr).append($buf).append($del);
+                apply(entry);
+                return row;
+            }
+            function readRows() {
+                var out = [];
+                $list.find('.nr-ws-adcfg-row').each(function(){
+                    var r = $(this); var diff = r.find('input.diff').is(':checked');
+                    out.push({ ch: parseInt(r.find('select.ch').val() as any), differential: diff, neg: diff ? parseInt(r.find('select.neg').val() as any) : 8, gain: parseInt(r.find('select.gain').val() as any), drate: parseFloat(r.find('select.drate').val() as any), buffered: r.find('input.buffered').is(':checked') });
+                });
+                return out;
+            }
+            function syncJson() { try { $('#node-config-input-channelsJson').val(JSON.stringify(readRows())); } catch(e) {} }
+            var init = [] as any[]; try { if (Array.isArray(this.channels)) init = this.channels; } catch {}
+            if (!init.length) { try { var raw = $('#node-config-input-channelsJson').val() as any; var parsed = JSON.parse(String(raw || '[]')); if (Array.isArray(parsed)) init = parsed; } catch {} }
+            if (init.length) { init.forEach(function(e){ $list.append(entryRow(e)); }); } else { $list.append(entryRow({ ch:0, differential:false, neg:8, gain:1, drate:10, buffered:true })); }
+            $('#nr-ws-adcfg-add-se').on('click', function(){ $list.append(entryRow({ ch:0, differential:false, neg:8, gain:1, drate:10, buffered:true })); syncJson(); });
+            $('#nr-ws-adcfg-add-diff').on('click', function(){ $list.append(entryRow({ ch:0, differential:true, neg:1, gain:1, drate:10, buffered:false })); syncJson(); });
         },
         oneditsave: function() {
-            var raw = $('#node-config-input-channelsJson').val();
-            var arr = [];
-            try {
-                var parsed = JSON.parse(String(raw || '[]'));
-                if (Array.isArray(parsed)) arr = parsed;
-            } catch (e) {
-                arr = [];
-            }
-            (this).channels = arr;
+            var rows = [] as any[];
+            $('#nr-ws-adcfg-list .nr-ws-adcfg-row').each(function(){
+                var r = $(this); var diff = r.find('input.diff').is(':checked');
+                rows.push({ ch: parseInt(r.find('select.ch').val() as any), differential: diff, neg: diff ? parseInt(r.find('select.neg').val() as any) : 8, gain: parseInt(r.find('select.gain').val() as any), drate: parseFloat(r.find('select.drate').val() as any), buffered: r.find('input.buffered').is(':checked') });
+            });
+            (this as any).channels = rows; try { (this as any).channelsJson = JSON.stringify(rows); } catch {}
         }
     });
 </script>
@@ -44,9 +83,14 @@
         </select>
     </div>
     <div class="form-row">
-        <label for="node-config-input-channelsJson"><i class="fa fa-list"></i> Channels JSON</label>
-        <input type="text" id="node-config-input-channelsJson" placeholder='[{"ch":0,"differential":false,"neg":8,"gain":1,"drate":10,"buffered":true}]'>
-        <div class="help">Define an array of channel configs: { ch, differential?, neg?, gain?, drate?, buffered? }</div>
+        <label><i class="fa fa-list"></i> Channels</label>
+        <div id="nr-ws-adcfg-list" class="nr-ws-adcfg-list"></div>
+        <div class="form-tips">Add singles or differential pairs; AINCOM (8) is enforced for single-ended.</div>
+        <div class="padT">
+            <button type="button" id="nr-ws-adcfg-add-se" class="red-ui-button">Add single-ended</button>
+            <button type="button" id="nr-ws-adcfg-add-diff" class="red-ui-button">Add differential</button>
+        </div>
+        <input type="hidden" id="node-config-input-channelsJson" />
     </div>
 </script>
 
