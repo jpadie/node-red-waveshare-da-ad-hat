@@ -1,4 +1,4 @@
-<!-- @version @jpadie/waveshare-da-ad-hat v1.0.58 2025-09-11T20:52:26.512Z commit 50d3e50 -->
+<!-- @version @jpadie/waveshare-da-ad-hat v1.0.59 2025-09-11T21:16:10.507Z commit b819438 -->
 <script type="text/javascript">
     RED.nodes.registerType('waveshare-ad-config',{
         category: 'config',
@@ -49,22 +49,30 @@
                 var out = [];
                 $list.find('.nr-ws-adcfg-row').each(function(){
                     var r = $(this); var diff = r.find('input.diff').is(':checked');
-                    out.push({ ch: parseInt(r.find('select.ch').val() as any), differential: diff, neg: diff ? parseInt(r.find('select.neg').val() as any) : 8, gain: parseInt(r.find('select.gain').val() as any), drate: parseFloat(r.find('select.drate').val() as any), buffered: r.find('input.buffered').is(':checked') });
+                    var vCh = parseInt(String(r.find('select.ch').val()), 10);
+                    var vNeg = parseInt(String(r.find('select.neg').val()), 10);
+                    var vGain = parseInt(String(r.find('select.gain').val()), 10);
+                    var vDr = parseFloat(String(r.find('select.drate').val()));
+                    out.push({ ch: isNaN(vCh)?0:vCh, differential: diff, neg: diff ? (isNaN(vNeg)?8:vNeg) : 8, gain: isNaN(vGain)?1:vGain, drate: isNaN(vDr)?10:vDr, buffered: r.find('input.buffered').is(':checked') });
                 });
                 return out;
             }
             function syncJson() { try { $('#node-config-input-channelsJson').val(JSON.stringify(readRows())); } catch(e) {} }
-            var init = [] as any[]; try { if (Array.isArray(this.channels)) init = this.channels; } catch {}
-            if (!init.length) { try { var raw = $('#node-config-input-channelsJson').val() as any; var parsed = JSON.parse(String(raw || '[]')); if (Array.isArray(parsed)) init = parsed; } catch {} }
+            var init = []; try { if (Array.isArray(this.channels)) init = this.channels; } catch {}
+            if (!init.length) { try { var raw = $('#node-config-input-channelsJson').val(); var parsed = JSON.parse(String(raw || '[]')); if (Array.isArray(parsed)) init = parsed; } catch {} }
             if (init.length) { init.forEach(function(e){ $list.append(entryRow(e)); }); } else { $list.append(entryRow({ ch:0, differential:false, neg:8, gain:1, drate:10, buffered:true })); }
             $('#nr-ws-adcfg-add-se').on('click', function(){ $list.append(entryRow({ ch:0, differential:false, neg:8, gain:1, drate:10, buffered:true })); syncJson(); });
             $('#nr-ws-adcfg-add-diff').on('click', function(){ $list.append(entryRow({ ch:0, differential:true, neg:1, gain:1, drate:10, buffered:false })); syncJson(); });
         },
         oneditsave: function() {
-            var rows = [] as any[];
+            var rows = [];
             $('#nr-ws-adcfg-list .nr-ws-adcfg-row').each(function(){
                 var r = $(this); var diff = r.find('input.diff').is(':checked');
-                rows.push({ ch: parseInt(r.find('select.ch').val() as any), differential: diff, neg: diff ? parseInt(r.find('select.neg').val() as any) : 8, gain: parseInt(r.find('select.gain').val() as any), drate: parseFloat(r.find('select.drate').val() as any), buffered: r.find('input.buffered').is(':checked') });
+                var vCh = parseInt(String(r.find('select.ch').val()), 10);
+                var vNeg = parseInt(String(r.find('select.neg').val()), 10);
+                var vGain = parseInt(String(r.find('select.gain').val()), 10);
+                var vDr = parseFloat(String(r.find('select.drate').val()));
+                rows.push({ ch: isNaN(vCh)?0:vCh, differential: diff, neg: diff ? (isNaN(vNeg)?8:vNeg) : 8, gain: isNaN(vGain)?1:vGain, drate: isNaN(vDr)?10:vDr, buffered: r.find('input.buffered').is(':checked') });
             });
             (this as any).channels = rows; try { (this as any).channelsJson = JSON.stringify(rows); } catch {}
         }
