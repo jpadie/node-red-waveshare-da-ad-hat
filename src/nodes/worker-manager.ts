@@ -256,9 +256,6 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
 
         // Start or reconfigure stream
         try {
-            if (this.streamActive) {
-                try { await this.request({ jsonrpc: '2.0', method: 'stop_stream', params: {} }); } catch {}
-            }
             await this.request({
                 jsonrpc: '2.0',
                 method: 'start_stream',

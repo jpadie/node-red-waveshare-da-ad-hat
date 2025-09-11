@@ -1,4 +1,4 @@
-# @version @jpadie/waveshare-da-ad-hat v1.0.51 2025-09-10T18:19:31.241Z commit 3e2ec87
+# @version @jpadie/waveshare-da-ad-hat v1.0.52 2025-09-11T07:59:42.089Z commit 54567b7
 
 """
 Waveshare DA-AD HAT Worker (JSON-RPC over stdio)
@@ -557,16 +557,30 @@ class Worker:
 
             if method == "start_stream":
                 # params: { streamId: str, mode:"round_robin", channels: [{ch, differential, neg, gain, drate, buffered}] }
-                if self.stream_running:
-                    raise RuntimeError("Stream already running")
                 p = params
                 if not isinstance(p.get("channels"), list) or not p.get("channels"):
                     raise ValueError("channels list required")
-                self.stream_cfg = {
+                requested_cfg = {
                     "streamId": p.get("streamId") or "default",
                     "channels": p["channels"],
                     "mode": p.get("mode", "round_robin"),
                 }
+                if self.stream_running:
+                    try:
+                        # Idempotent: if same config, acknowledge
+                        if json.dumps(requested_cfg, sort_keys=True) == json.dumps(self.stream_cfg or {}, sort_keys=True):
+                            return {"jsonrpc": "2.0", "id": _id, "result": {"ok": True}}
+                    except Exception:
+                        pass
+                    # Different config: stop current stream and restart
+                    self.stream_running = False
+                    t = self.stream_thread
+                    if t and t.is_alive():
+                        t.join(timeout=1.0)
+                    self.stream_thread = None
+                    self.stream_cfg = None
+                # Start with requested config
+                self.stream_cfg = requested_cfg
                 self.stream_running = True
                 self.stream_thread = threading.Thread(target=self._stream_loop, daemon=True)
                 self.stream_thread.start()
