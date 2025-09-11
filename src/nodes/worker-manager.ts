@@ -62,6 +62,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     private subscriptions: Map<string, { cfg: ChannelConfig; handler: (sample: any) => void } > = new Map();
     private streamActive: boolean = false;
     private streamId: string = 'global';
+    private desiredChannels: ChannelConfig[] = [];
 
     constructor(config: any) {
         super();
@@ -226,25 +227,44 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         }
     }
 
+    setDesiredChannels(channels: ChannelConfig[]): void {
+        // Normalize channels; enforce AINCOM (8) for single-ended
+        const normalized: ChannelConfig[] = [];
+        for (const c of channels || []) {
+            const diff = !!c.differential;
+            normalized.push({
+                ch: Number(c.ch),
+                differential: diff,
+                neg: diff ? Number(c.neg ?? 8) : 8,
+                gain: Number(c.gain ?? 1),
+                drate: Number(c.drate ?? 10.0),
+                buffered: !!c.buffered,
+            });
+        }
+        this.desiredChannels = normalized;
+        this.ensureStreamMatchesSubscriptions();
+    }
+
     private async ensureStreamMatchesSubscriptions(): Promise<void> {
-        // Build unique channel list from subscriptions
+        // Build unique channel list from desired config (primary) then subscriptions (fallback/additive)
         const channels: ChannelConfig[] = [];
         const keySet = new Set<string>();
-        for (const [, sub] of this.subscriptions) {
-            const cfg = {
-                ch: sub.cfg.ch,
-                differential: !!sub.cfg.differential,
-                neg: sub.cfg.neg ?? 8,
-                gain: sub.cfg.gain ?? 1,
-                drate: sub.cfg.drate ?? 10.0,
-                buffered: !!sub.cfg.buffered,
-            } as ChannelConfig;
-            const key = `${cfg.ch}|${cfg.differential?'1':'0'}|${cfg.neg}|${cfg.gain}|${cfg.drate}|${cfg.buffered?'1':'0'}`;
-            if (!keySet.has(key)) {
-                keySet.add(key);
-                channels.push(cfg);
-            }
-        }
+
+        const add = (cfg: ChannelConfig) => {
+            const norm: ChannelConfig = {
+                ch: Number(cfg.ch),
+                differential: !!cfg.differential,
+                neg: !!cfg.differential ? Number(cfg.neg ?? 8) : 8,
+                gain: Number(cfg.gain ?? 1),
+                drate: Number(cfg.drate ?? 10.0),
+                buffered: !!cfg.buffered,
+            };
+            const key = `${norm.ch}|${norm.differential?'1':'0'}|${norm.neg}|${norm.gain}|${norm.drate}|${norm.buffered?'1':'0'}`;
+            if (!keySet.has(key)) { keySet.add(key); channels.push(norm); }
+        };
+
+        for (const c of this.desiredChannels || []) add(c);
+        for (const [, sub] of this.subscriptions) add(sub.cfg);
 
         if (channels.length === 0) {
             if (this.streamActive) {
@@ -304,7 +324,8 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         const ADC_VREF = 2.5;
         const denom = Math.pow(2, 23) - 1;
         const gain = sample.gain || 1;
-        const voltage = (sample.raw / denom) * ((2 * ADC_VREF) / gain);
+        // Vin (V) = raw / (2^23-1) * (Vref / gain) for ADS1256 bipolar output
+        const voltage = (sample.raw / denom) * (ADC_VREF / gain);
         return {
             ...sample,
             voltage,

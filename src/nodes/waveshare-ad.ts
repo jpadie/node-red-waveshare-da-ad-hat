@@ -47,6 +47,14 @@ module.exports = function(RED: any) {
 
         const subscribeFromConfig = (baseMsg?: any) => {
             const eff = getEffectiveConfig();
+            // Seed desired channels from config node if present
+            try {
+                const cfgNode = config.configRef ? RED.nodes.getNode(config.configRef) : null;
+                const channels = cfgNode && Array.isArray((cfgNode as any).channels) ? (cfgNode as any).channels : [];
+                if (channels.length) {
+                    workerManager.setDesiredChannels(channels);
+                }
+            } catch {}
             const subId = subscriptionId || `${node.id}`;
             const handler = (sample: any) => {
                 const payload = {

@@ -1,4 +1,4 @@
-# @version @jpadie/waveshare-da-ad-hat v1.0.56 2025-09-11T10:08:29.180Z commit 54f5f82
+# @version @jpadie/waveshare-da-ad-hat v1.0.57 2025-09-11T17:39:33.632Z commit e714ee3
 
 # -*- coding:utf-8 -*-
 """
