@@ -1,4 +1,4 @@
-# @version @jpadie/waveshare-da-ad-hat v1.0.54 2025-09-11T10:04:12.611Z commit 68b7dbb
+# @version @jpadie/waveshare-da-ad-hat v1.0.55 2025-09-11T10:07:41.547Z commit be8eab6
 
 """
 Waveshare DA-AD HAT Worker (JSON-RPC over stdio)
