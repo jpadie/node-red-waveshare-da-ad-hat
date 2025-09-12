@@ -295,6 +295,94 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     }
 
     /**
+     * Read ADC channel and return converted result with config
+     */
+    async readADC(channel: number, options?: {
+        gain?: number;
+        drate?: number;
+        differential?: boolean;
+        negChannel?: number;
+        buffered?: boolean;
+    }): Promise<{
+        channel: number;
+        raw: number;
+        mV: number;
+        config: {
+            vref: number;
+            pga: number;
+            sps: number;
+            buffered: boolean;
+            differential: boolean;
+            negChannel?: number | null;
+            timestamp: string;
+        };
+    }> {
+        const params = {
+            channel,
+            gain: options?.gain ?? 1,
+            drate: options?.drate ?? 10.0,
+            differential: options?.differential ?? false,
+            negChannel: options?.negChannel ?? 8,
+            buffered: options?.buffered ?? false
+        };
+
+        const result: any = await this.request({
+            jsonrpc: '2.0',
+            method: 'read_adc',
+            params
+        });
+
+        const ADC_VREF = 2.5; // 2.5V reference (hardwired LDO)
+        const pga = params.gain;
+        
+        // Convert raw ADC value to millivolts
+        // Formula: mV = 1000 * (raw/(2^23-1)) * (ADC_VREF/PGA)
+        const mV = 1000 * (result.raw / (Math.pow(2, 23) - 1)) * (ADC_VREF / pga);
+
+        return {
+            channel: result.channel,
+            raw: result.raw,
+            mV: mV,
+            config: {
+                vref: ADC_VREF,
+                pga: pga,
+                sps: result.drate,
+                buffered: result.buffered,
+                differential: result.differential,
+                negChannel: result.negChannel,
+                timestamp: new Date().toISOString()
+            }
+        };
+    }
+
+    /**
+     * Write DAC channel with voltage (converts to raw 16-bit value)
+     */
+    async writeDAC(channel: number, voltage: number): Promise<void> {
+        const DAC_VREF = 2.5; // 2.5V reference
+        
+        // Clamp voltage to 0-2.5V range
+        let clampedVoltage = voltage;
+        if (clampedVoltage < 0) {
+            clampedVoltage = 0;
+        } else if (clampedVoltage > DAC_VREF) {
+            clampedVoltage = DAC_VREF;
+        }
+        
+        // Convert voltage to raw 16-bit value (DAC8532)
+        const rawValue = Math.round(clampedVoltage * 65535 / DAC_VREF);
+
+        await this.request({
+            jsonrpc: '2.0',
+            method: 'set_dac_value',
+            params: {
+                port: channel,
+                value: rawValue
+            }
+        });
+    }
+
+    /**
      * Send a ping request to check if worker is alive
      */
     async ping(): Promise<boolean> {

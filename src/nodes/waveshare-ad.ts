@@ -9,7 +9,7 @@ module.exports = function(RED: any) {
         RED.nodes.createNode(this, config);
         
         const node = this;
-        
+
         // Handle node removal
         node.on('close', () => {
             // Only remove ref if we added one
@@ -67,39 +67,30 @@ module.exports = function(RED: any) {
                     throw new Error('Invalid data rate');
                 }
 
-                // Send request to worker
-                const result = await workerManager.request({
-                    jsonrpc: '2.0',
-                    method: 'read_adc',
-                    params: {
-                        channel: channel,
-                        differential: differential,
-                        negChannel: negChannel,
-                        buffered: buffered,
-                        gain: gain,
-                        drate: drate
-                    }
+                // Send request to worker using new readADC method
+                const result = await workerManager.readADC(channel, {
+                    gain: gain,
+                    drate: drate,
+                    differential: differential,
+                    negChannel: negChannel,
+                    buffered: buffered
                 });
 
-                // Update message with result
+                // Update message with enhanced result
                 msg.payload = {
                     success: true,
                     channel: result.channel,
-                    negChannel: result.negChannel,
-                    differential: !!result.differential,
-                    buffered: !!result.buffered,
                     raw: result.raw,
-                    voltage_mv: result.voltage_mv,
-                    gain: result.gain,
-                    drate: result.drate,
-                    timestamp: new Date().toISOString()
+                    voltage_mv: result.mV,
+                    voltage_v: result.mV / 1000,
+                    config: result.config
                 };
 
                 // Update node status
                 node.status({
                     fill: 'green',
                     shape: 'dot',
-                    text: `${differential ? `Ch${channel}-Ch${negChannel}` : `Ch${channel}`}: ${result.voltage_mv}mV`
+                    text: `${result.config.differential ? `Ch${result.channel}-Ch${result.config.negChannel}` : `Ch${result.channel}`}: ${result.mV.toFixed(2)}mV`
                 });
 
                 node.send(msg);

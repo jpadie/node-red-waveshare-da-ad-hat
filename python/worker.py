@@ -441,20 +441,17 @@ class ADS1256:
         if raw & 0x800000:
             raw -= 0x1000000  # signed 24-bit
             
-        # Vin = raw/(2^23-1) * (Vref / PGA)
-        voltage = (float(raw) / 0x7FFFFF) * (ADC_VREF / float(gain))
-        voltage_mv = voltage * 1000.0
-        log.info(f"ADC raw={raw}, mv={voltage_mv:.3f}")
+        # Return raw value only - conversion moved to TypeScript
+        log.info(f"ADC raw={raw}")
         return {
             "channel": channel,
             "negChannel": None if (not differential) else neg_channel,
             "differential": differential,
             "buffered": buffered,
             "raw": raw,
-            "voltage_mv": round(voltage_mv, 3),
-            "voltage": round(voltage, 5),
             "gain": gain,
             "drate": drate,
+            "ts": time.time(),
             **({"statusReg": status_reg_val} if debugStatusReadback and (status_reg_val is not None) else {}),
         }
 
@@ -670,8 +667,7 @@ class Worker:
                     raw = (data[0] << 16) | (data[1] << 8) | data[2]
                     if raw & 0x800000:
                         raw -= 0x1000000
-                    ADC_VREF = 2.5
-                    voltage = (float(raw) / 0x7FFFFF) * (ADC_VREF / float(gain))
+                    # Return raw value only - conversion moved to TypeScript
                     sample = {
                         "streamId": stream_id,
                         "channel": ch,
@@ -679,8 +675,6 @@ class Worker:
                         "differential": differential,
                         "buffered": buffered,
                         "raw": raw,
-                        "voltage_mv": round(voltage * 1000.0, 3),
-                        "voltage": round(voltage, 5),
                         "gain": gain,
                         "drate": drate,
                         "ts": time.time(),

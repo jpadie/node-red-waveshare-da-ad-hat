@@ -40,19 +40,24 @@ module.exports = function(RED: any) {
                 let method: string;
                 let params: any;
 
+                let result: any;
+                
                 if (controlMode === 'voltage') {
-                    // Enforce payload object structure
+                    // Use new writeDAC method for voltage mode
                     const voltage = parseFloat(msg.payload?.value);
-                    const vref = parseFloat(msg.payload?.vref ?? config.vref ?? 3.3);
-                    if (voltage < 0 || voltage > vref) {
-                        throw new Error(`Voltage must be between 0 and ${vref}V`);
+                    if (isNaN(voltage)) {
+                        throw new Error('Invalid voltage value');
                     }
                     
-                    method = 'set_dac_voltage';
-                    params = {
+                    // Use new writeDAC method (handles 2.5V reference and clamping internally)
+                    await workerManager.writeDAC(port, voltage);
+                    
+                    // Create result for backward compatibility
+                    result = {
                         port: port,
-                        voltage: voltage,
-                        vref: vref
+                        voltage_mv: Math.round(voltage * 1000),
+                        value: Math.round(voltage * 65535 / 2.5), // Convert to raw for display
+                        vref: 2.5
                     };
                 } else {
                     // Value mode: input should be raw DAC value (0-65535) from payload.value
@@ -66,14 +71,14 @@ module.exports = function(RED: any) {
                         port: port,
                         value: value
                     };
+                    
+                    // Send request to worker for raw value mode
+                    result = await workerManager.request({
+                        jsonrpc: '2.0',
+                        method: method,
+                        params: params
+                    });
                 }
-
-                // Send request to worker
-                const result = await workerManager.request({
-                    jsonrpc: '2.0',
-                    method: method,
-                    params: params
-                });
 
                 // Update message with result
                 msg.payload = {
@@ -89,7 +94,7 @@ module.exports = function(RED: any) {
                 node.status({
                     fill: 'green',
                     shape: 'dot',
-                    text: method === 'set_dac_voltage' ? `V: ${result.voltage_mv ?? ''}mV` : `Raw: ${result.value}`
+                    text: controlMode === 'voltage' ? `V: ${result.voltage_mv ?? ''}mV` : `Raw: ${result.value}`
                 });
 
                 node.send(msg);
