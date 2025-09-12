@@ -1,0 +1,283 @@
+<script type="text/javascript">
+    RED.nodes.registerType('waveshare-ad-multi', {
+        category: 'Waveshare DA/AD HAT',
+        color: '#87CEEB',
+        defaults: {
+            name: { value: '' },
+            comparisons: { value: [], validate: function(v) { return Array.isArray(v) && v.length > 0; } },
+            emissionFrequency: { value: 1.0, validate: function(v) { return !isNaN(v) && v > 0 && v <= 1000; } },
+            outputFormat: { value: 'aggregated' } // 'aggregated' or 'individual'
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: 'serial.png',
+        label: function() {
+            return this.name || `Multi-ADC (${this.comparisons.length} comparisons)`;
+        },
+        labelStyle: function() {
+            return this.name ? 'node_label_italic' : '';
+        },
+        oneditprepare: function() {
+            const node = this;
+            
+            // Initialize comparisons list
+            $('#node-input-comparisons-container').css('min-height', '150px').editableList({
+                addItem: function(container, i, opt) {
+                    const comparison = opt.comparison || {
+                        name: `Comparison ${i + 1}`,
+                        channel: 0,
+                        differential: false,
+                        negChannel: 8,
+                        gain: 1,
+                        buffered: false,
+                        sps: 10.0
+                    };
+                    
+                    const row = $('<div></div>').appendTo(container);
+                    
+                    // Comparison name
+                    $('<div class="form-row">').html(
+                        '<label for="comparison-name-' + i + '"><i class="fa fa-tag"></i> Name</label>' +
+                        '<input type="text" id="comparison-name-' + i + '" style="width: 70%;" placeholder="Comparison name">'
+                    ).appendTo(row);
+                    $('#comparison-name-' + i).val(comparison.name);
+                    
+                    // Channel configuration
+                    $('<div class="form-row">').html(
+                        '<label><i class="fa fa-microchip"></i> Channel</label>' +
+                        '<select id="comparison-channel-' + i + '" style="width: 25%; margin-right: 10px;">' +
+                        '  <option value="0">AIN0</option>' +
+                        '  <option value="1">AIN1</option>' +
+                        '  <option value="2">AIN2</option>' +
+                        '  <option value="3">AIN3</option>' +
+                        '  <option value="4">AIN4</option>' +
+                        '  <option value="5">AIN5</option>' +
+                        '  <option value="6">AIN6</option>' +
+                        '  <option value="7">AIN7</option>' +
+                        '</select>' +
+                        '<label style="margin-left: 10px;"><input type="checkbox" id="comparison-differential-' + i + '" style="margin-right: 5px;"> Differential</label>'
+                    ).appendTo(row);
+                    $('#comparison-channel-' + i).val(comparison.channel);
+                    $('#comparison-differential-' + i).prop('checked', comparison.differential);
+                    
+                    // Negative channel (for differential)
+                    const negChannelRow = $('<div class="form-row" id="neg-channel-row-' + i + '">').html(
+                        '<label><i class="fa fa-minus"></i> Negative Channel</label>' +
+                        '<select id="comparison-neg-channel-' + i + '" style="width: 25%;">' +
+                        '  <option value="0">AIN0</option>' +
+                        '  <option value="1">AIN1</option>' +
+                        '  <option value="2">AIN2</option>' +
+                        '  <option value="3">AIN3</option>' +
+                        '  <option value="4">AIN4</option>' +
+                        '  <option value="5">AIN5</option>' +
+                        '  <option value="6">AIN6</option>' +
+                        '  <option value="7">AIN7</option>' +
+                        '  <option value="8">AINCOM</option>' +
+                        '</select>'
+                    ).appendTo(row);
+                    $('#comparison-neg-channel-' + i).val(comparison.negChannel);
+                    
+                    // Gain and settings
+                    $('<div class="form-row">').html(
+                        '<label><i class="fa fa-expand"></i> Gain</label>' +
+                        '<select id="comparison-gain-' + i + '" style="width: 20%; margin-right: 10px;">' +
+                        '  <option value="1">1</option>' +
+                        '  <option value="2">2</option>' +
+                        '  <option value="4">4</option>' +
+                        '  <option value="8">8</option>' +
+                        '  <option value="16">16</option>' +
+                        '  <option value="32">32</option>' +
+                        '  <option value="64">64</option>' +
+                        '</select>' +
+                        '<label style="margin-left: 10px;"><input type="checkbox" id="comparison-buffered-' + i + '" style="margin-right: 5px;"> Buffered</label>'
+                    ).appendTo(row);
+                    $('#comparison-gain-' + i).val(comparison.gain);
+                    $('#comparison-buffered-' + i).prop('checked', comparison.buffered);
+                    
+                    // Sample rate
+                    $('<div class="form-row">').html(
+                        '<label><i class="fa fa-clock-o"></i> Sample Rate (SPS)</label>' +
+                        '<select id="comparison-sps-' + i + '" style="width: 30%;">' +
+                        '  <option value="2.5">2.5</option>' +
+                        '  <option value="5">5</option>' +
+                        '  <option value="10">10</option>' +
+                        '  <option value="15">15</option>' +
+                        '  <option value="25">25</option>' +
+                        '  <option value="30">30</option>' +
+                        '  <option value="50">50</option>' +
+                        '  <option value="60">60</option>' +
+                        '  <option value="100">100</option>' +
+                        '  <option value="500">500</option>' +
+                        '  <option value="1000">1000</option>' +
+                        '  <option value="2000">2000</option>' +
+                        '  <option value="3750">3750</option>' +
+                        '  <option value="7500">7500</option>' +
+                        '  <option value="15000">15000</option>' +
+                        '  <option value="30000">30000</option>' +
+                        '</select>'
+                    ).appendTo(row);
+                    $('#comparison-sps-' + i).val(comparison.sps);
+                    
+                    // Toggle differential/negative channel visibility
+                    function toggleDifferential() {
+                        if ($('#comparison-differential-' + i).prop('checked')) {
+                            $('#neg-channel-row-' + i).show();
+                        } else {
+                            $('#neg-channel-row-' + i).hide();
+                            $('#comparison-neg-channel-' + i).val(8); // AINCOM
+                        }
+                    }
+                    
+                    $('#comparison-differential-' + i).change(toggleDifferential);
+                    toggleDifferential();
+                },
+                removeItem: function(opt) {
+                    // No special cleanup needed
+                },
+                sortItems: function(items) {
+                    // Allow reordering of comparisons
+                }
+            });
+            
+            // Load existing comparisons
+            if (node.comparisons && node.comparisons.length > 0) {
+                node.comparisons.forEach(function(comparison, i) {
+                    $('#node-input-comparisons-container').editableList('addItem', { comparison: comparison });
+                });
+            } else {
+                // Add one default comparison
+                $('#node-input-comparisons-container').editableList('addItem', {});
+            }
+        },
+        oneditsave: function() {
+            const node = this;
+            const comparisons = [];
+            
+            $('#node-input-comparisons-container').editableList('items').each(function(i) {
+                const comparison = {
+                    name: $('#comparison-name-' + i, this).val() || `Comparison ${i + 1}`,
+                    channel: parseInt($('#comparison-channel-' + i, this).val()),
+                    differential: $('#comparison-differential-' + i, this).prop('checked'),
+                    negChannel: parseInt($('#comparison-neg-channel-' + i, this).val()),
+                    gain: parseInt($('#comparison-gain-' + i, this).val()),
+                    buffered: $('#comparison-buffered-' + i, this).prop('checked'),
+                    sps: parseFloat($('#comparison-sps-' + i, this).val())
+                };
+                comparisons.push(comparison);
+            });
+            
+            node.comparisons = comparisons;
+        },
+        oneditresize: function() {
+            // Handle resize if needed
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="waveshare-ad-multi">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Multi-ADC Node">
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-emissionFrequency"><i class="fa fa-clock-o"></i> Emission Frequency (Hz)</label>
+        <input type="number" id="node-input-emissionFrequency" placeholder="1.0" step="0.1" min="0.1" max="1000" style="width: 30%;">
+        <span style="margin-left: 10px; color: #666;">How often to emit aggregated results</span>
+    </div>
+    
+    <div class="form-row">
+        <label for="node-input-outputFormat"><i class="fa fa-list"></i> Output Format</label>
+        <select id="node-input-outputFormat" style="width: 30%;">
+            <option value="aggregated">Aggregated (all comparisons in one message)</option>
+            <option value="individual">Individual (separate message per comparison)</option>
+        </select>
+    </div>
+    
+    <div class="form-row">
+        <label style="width: 100%; text-align: left;"><i class="fa fa-list"></i> ADC Comparisons</label>
+        <ol id="node-input-comparisons-container"></ol>
+    </div>
+    
+    <div class="form-tips">
+        <p><strong>Tips:</strong></p>
+        <ul>
+            <li>Add multiple ADC comparisons with individual settings (gain, buffer, SPS)</li>
+            <li>Use differential mode to measure voltage differences between channels</li>
+            <li>The node will process comparisons in round-robin fashion</li>
+            <li>Higher emission frequencies require faster sample rates</li>
+        </ul>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="waveshare-ad-multi">
+    <p>Multi-channel ADC comparison node for the Waveshare DA/AD HAT.</p>
+    
+    <h3>Features</h3>
+    <ul>
+        <li>Configure multiple ADC comparisons with individual settings</li>
+        <li>Support for both single-ended and differential measurements</li>
+        <li>Round-robin processing of all configured comparisons</li>
+        <li>Configurable emission frequency for aggregated results</li>
+        <li>Individual gain, buffer, and sample rate settings per comparison</li>
+    </ul>
+    
+    <h3>Configuration</h3>
+    <dl class="message-properties">
+        <dt>Name <span class="property-type">string</span></dt>
+        <dd>Optional name for the node</dd>
+        
+        <dt>Emission Frequency <span class="property-type">number</span></dt>
+        <dd>How often (in Hz) to emit aggregated comparison results</dd>
+        
+        <dt>Output Format <span class="property-type">string</span></dt>
+        <dd>Choose between aggregated output (all comparisons in one message) or individual messages</dd>
+        
+        <dt>Comparisons <span class="property-type">array</span></dt>
+        <dd>List of ADC comparisons, each with:
+            <ul>
+                <li><strong>Name:</strong> Descriptive name for the comparison</li>
+                <li><strong>Channel:</strong> Primary ADC channel (AIN0-AIN7)</li>
+                <li><strong>Differential:</strong> Whether to use differential mode</li>
+                <li><strong>Negative Channel:</strong> Secondary channel for differential mode</li>
+                <li><strong>Gain:</strong> Programmable gain amplifier setting (1-64)</li>
+                <li><strong>Buffered:</strong> Enable input buffering</li>
+                <li><strong>Sample Rate:</strong> Samples per second (2.5-30000 SPS)</li>
+            </ul>
+        </dd>
+    </dl>
+    
+    <h3>Output</h3>
+    <p>The node outputs measurement results based on the configured format:</p>
+    
+    <h4>Aggregated Format:</h4>
+    <pre>{
+  "timestamp": "2025-09-12T14:30:00.000Z",
+  "measurements": [
+    {
+      "name": "Temperature Sensor",
+      "channel": 0,
+      "raw": 2097152,
+      "mV": 625.0,
+      "config": { ... }
+    },
+    {
+      "name": "Voltage Diff",
+      "channel": 2,
+      "raw": -524288,
+      "mV": -156.25,
+      "config": { ... }
+    }
+  ],
+  "cycleStats": {
+    "totalCycleTime": 45.2,
+    "samplesPerComparison": 1
+  }
+}</pre>
+    
+    <h4>Individual Format:</h4>
+    <p>Separate messages for each comparison with the same structure as single ADC reads.</p>
+    
+    <h3>Usage</h3>
+    <p>This node is ideal for monitoring multiple sensors or voltage rails simultaneously. Configure each comparison with appropriate settings and the node will continuously process them in round-robin fashion, emitting results at the specified frequency.</p>
+</script>

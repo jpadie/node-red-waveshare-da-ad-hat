@@ -1,0 +1,148 @@
+[
+    {
+        "id": "multi_adc_example",
+        "type": "tab",
+        "label": "Multi-ADC Monitoring Example",
+        "disabled": false,
+        "info": "Example flow demonstrating the multi-ADC comparison node with multiple sensors"
+    },
+    {
+        "id": "multi_adc_node",
+        "type": "waveshare-ad-multi",
+        "z": "multi_adc_example",
+        "name": "Sensor Monitor",
+        "comparisons": [
+            {
+                "name": "Temperature Sensor",
+                "channel": 0,
+                "differential": false,
+                "negChannel": 8,
+                "gain": 1,
+                "buffered": true,
+                "sps": 100
+            },
+            {
+                "name": "Pressure Sensor",
+                "channel": 1,
+                "differential": false,
+                "negChannel": 8,
+                "gain": 2,
+                "buffered": true,
+                "sps": 50
+            },
+            {
+                "name": "Voltage Differential",
+                "channel": 2,
+                "differential": true,
+                "negChannel": 3,
+                "gain": 4,
+                "buffered": false,
+                "sps": 250
+            },
+            {
+                "name": "Current Sensor",
+                "channel": 4,
+                "differential": false,
+                "negChannel": 8,
+                "gain": 8,
+                "buffered": true,
+                "sps": 100
+            }
+        ],
+        "emissionFrequency": 2.0,
+        "outputFormat": "aggregated",
+        "x": 200,
+        "y": 200,
+        "wires": [["debug_output"]]
+    },
+    {
+        "id": "debug_output",
+        "type": "debug",
+        "z": "multi_adc_example",
+        "name": "Multi-ADC Output",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 450,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "start_button",
+        "type": "inject",
+        "z": "multi_adc_example",
+        "name": "Start Monitoring",
+        "props": [
+            {
+                "p": "payload.command",
+                "v": "start",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 200,
+        "y": 120,
+        "wires": [["multi_adc_node"]]
+    },
+    {
+        "id": "stop_button",
+        "type": "inject",
+        "z": "multi_adc_example",
+        "name": "Stop Monitoring",
+        "props": [
+            {
+                "p": "payload.command",
+                "v": "stop",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 200,
+        "y": 280,
+        "wires": [["multi_adc_node"]]
+    },
+    {
+        "id": "status_button",
+        "type": "inject",
+        "z": "multi_adc_example",
+        "name": "Get Status",
+        "props": [
+            {
+                "p": "payload.command",
+                "v": "status",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 200,
+        "y": 340,
+        "wires": [["multi_adc_node"]]
+    },
+    {
+        "id": "comment_1",
+        "type": "comment",
+        "z": "multi_adc_example",
+        "name": "Multi-ADC Comparison Node Demo",
+        "info": "This flow demonstrates the multi-ADC comparison node:\n\n1. **Configure Multiple Sensors:** The node is set up to monitor 4 different sensors:\n   - Temperature sensor on AIN0 (single-ended, gain=1)\n   - Pressure sensor on AIN1 (single-ended, gain=2) \n   - Voltage differential between AIN2 and AIN3 (differential, gain=4)\n   - Current sensor on AIN4 (single-ended, gain=8)\n\n2. **Round-Robin Processing:** The node processes each comparison in sequence\n\n3. **Aggregated Output:** Results from all comparisons are delivered together at 2Hz\n\n4. **Individual Settings:** Each comparison has its own gain, buffer, and sample rate settings\n\n**Controls:**\n- Start Monitoring: Begin continuous measurement\n- Stop Monitoring: Stop all measurements\n- Get Status: Check current node status\n\n**Output Format:**\n```json\n{\n  \"timestamp\": \"2025-09-12T14:30:00.000Z\",\n  \"measurements\": [\n    {\n      \"name\": \"Temperature Sensor\",\n      \"channel\": 0,\n      \"raw\": 2097152,\n      \"mV\": 625.0,\n      \"config\": { ... }\n    },\n    // ... more measurements\n  ],\n  \"cycleStats\": {\n    \"totalCycleTime\": 45.2,\n    \"samplesPerComparison\": 1,\n    \"emissionFrequency\": 2.0\n  }\n}\n```",
+        "x": 610,
+        "y": 120,
+        "wires": []
+    }
+]

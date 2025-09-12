@@ -43,7 +43,8 @@
     "nodes": {
       "waveshare-da": "nodes/waveshare-da.js",
       "waveshare-ad": "nodes/waveshare-ad.js",
-      "waveshare-ad-stream": "nodes/waveshare-ad-stream.js"
+      "waveshare-ad-stream": "nodes/waveshare-ad-stream.js",
+      "waveshare-ad-multi": "nodes/waveshare-ad-multi.js"
     }
   },
   "engines": {
