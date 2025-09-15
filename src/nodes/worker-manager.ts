@@ -23,6 +23,8 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
     private correlationId = 0;
     private config: any;
     private refCount = 0;
+    private workerPid: number | null = null;
+    private lastDeployId: string | null = null;
 
     // (5) stdout line buffer to handle chunking
     private stdoutBuffer = '';
@@ -89,6 +91,10 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
 
             this.log('Python worker started');
 
+            // Capture worker PID for telemetry
+            this.workerPid = this.worker.pid || null;
+            this.log(`Worker PID: ${this.workerPid}`);
+
             // Initialize ADC after worker starts
             setTimeout(() => {
                 this.request({
@@ -112,8 +118,9 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
 
             // Handle worker exit
             this.worker.on('exit', (code, signal) => {
-                this.log(`Worker exited with code ${code}, signal ${signal}`);
+                this.log(`Worker exited with code ${code}, signal ${signal}, PID was ${this.workerPid}`);
                 this.worker = null;
+                this.workerPid = null;
                 if (this.stopping && this.stoppingPromise) {
                     this.stopping = false;
                     const done = this.stoppingPromise;
@@ -123,7 +130,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
                         try { (done as any).resolve?.(); } catch {}
                     }, 0);
                 }
-                this.emit('workerExit', { code, signal });
+                this.emit('workerExit', { code, signal, pid: this.workerPid });
 
                 // Reject all pending requests
                 this.rejectAllPending('Worker process exited');
@@ -155,7 +162,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             (this.stoppingPromise as any).resolve = resolveFn!;
         }
 
-        this.log('Stopping Python worker');
+        this.log(`Stopping Python worker (PID: ${this.workerPid})`);
 
         // Send SIGTERM first
         proc.kill('SIGTERM');
@@ -163,7 +170,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         // Force kill after 2 seconds if still running
         setTimeout(() => {
             if (proc.exitCode === null) {
-                this.log('Force killing worker');
+                this.log(`Force killing worker (PID: ${this.workerPid})`);
                 proc.kill('SIGKILL');
             }
         }, 2000);
@@ -439,6 +446,49 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         } catch (error) {
             return false;
         }
+    }
+
+    /**
+     * Get worker status and telemetry
+     */
+    async getStatus(): Promise<{
+        connected: boolean;
+        pid: number | null;
+        queueSize: number;
+        inFlight: number;
+        deployId: string | null;
+    }> {
+        try {
+            const result: any = await this.request({
+                jsonrpc: '2.0',
+                method: 'status',
+                params: {}
+            });
+            return {
+                connected: this.isConnected(),
+                pid: this.workerPid,
+                queueSize: this.requestQueue.length,
+                inFlight: this.inFlight.size,
+                deployId: this.lastDeployId,
+                ...result
+            };
+        } catch (error) {
+            return {
+                connected: false,
+                pid: null,
+                queueSize: this.requestQueue.length,
+                inFlight: this.inFlight.size,
+                deployId: this.lastDeployId
+            };
+        }
+    }
+
+    /**
+     * Set deployment ID for idempotent redeploy tracking
+     */
+    setDeployId(deployId: string): void {
+        this.lastDeployId = deployId;
+        this.log(`Deploy ID set: ${deployId}`);
     }
 
     /**

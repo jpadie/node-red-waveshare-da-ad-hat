@@ -317,6 +317,30 @@ class Worker:
             except Exception as e:
                 raise RuntimeError(f"ADC init/import failed: {e}")
 
+    # ---- Error helpers / codes ----
+    _ERR = {
+        "gpio_unavailable": -32010,
+        "spi_busy": -32011,
+        "ads_init_failed": -32012,
+        "parse_error": -32700,
+        "invalid_params": -32602,
+        "method_not_found": -32601,
+        "internal_error": -32603,
+        "timeout": -32013,
+        "stream_conflict": -32014,
+    }
+
+    def _err_resp(self, _id: Any, code_key: str, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {
+            "jsonrpc": "2.0",
+            "id": _id,
+            "error": {
+                "code": self._ERR.get(code_key, self._ERR["internal_error"]),
+                "message": message,
+                **({"data": data} if data else {}),
+            },
+        }
+
     def _status(self) -> Dict[str, Any]:
         """Return health/status information."""
         return {
@@ -396,10 +420,9 @@ class Worker:
                     init_result = self.adc.ADS1256_init()
                     if init_result == 0:
                         return {"jsonrpc": "2.0", "id": _id, "result": {"status": "ok", "message": "ADC initialized successfully"}}
-                    else:
-                        return {"jsonrpc": "2.0", "id": _id, "error": {"code": -32000, "message": "ADC initialization failed"}}
+                    return self._err_resp(_id, "ads_init_failed", "ADC initialization failed")
                 except Exception as e:
-                    return {"jsonrpc": "2.0", "id": _id, "error": {"code": -32000, "message": f"ADC init error: {e}"}}
+                    return self._err_resp(_id, "ads_init_failed", f"ADC init error: {type(e).__name__}: {e}")
             
             if method == "set_dac_value":
                 ret = self.dac.set_value(int(params["port"]), int(params["value"]))
@@ -423,12 +446,12 @@ class Worker:
 
             if method == "read_adc":
                 if self.stream_running:
-                    raise RuntimeError("read_adc unavailable while streaming is active")
+                    return self._err_resp(_id, "stream_conflict", "read_adc unavailable while streaming is active")
                 
                 # Convert single channel request to definition format
                 self._ensure_adc()
                 definition = [{
-                    "channel": int(params["channel"]),
+                    "channel": int(params.get("channel", 0)),
                     "differential": bool(params.get("differential", False)),
                     "neg-channel": int(params.get("negChannel", 8)),
                     "buffered": bool(params.get("buffered", False)),
@@ -437,8 +460,13 @@ class Worker:
                 }]
                 
                 # Use getDefined to handle the actual reading under lock to serialize SPI access
-                with self.rm.lock:
-                    results = self.adc.ADS1256_GetDefined(definition)
+                try:
+                    with self.rm.lock:
+                        results = self.adc.ADS1256_GetDefined(definition)
+                except TimeoutError as e:
+                    return self._err_resp(_id, "timeout", f"ADC timeout: {e}")
+                except Exception as e:
+                    return self._err_resp(_id, "internal_error", f"ADC read error: {type(e).__name__}: {e}")
                 
                 # Return in expected format
                 if results and len(results) > 0:
@@ -459,17 +487,22 @@ class Worker:
                         }
                     }
                 else:
-                    raise RuntimeError("No result from getDefined")
+                    return self._err_resp(_id, "internal_error", "No result from getDefined")
 
             if method == "read_adc_defined":
                 if self.stream_running:
-                    raise RuntimeError("read_adc_defined unavailable while streaming is active")
+                    return self._err_resp(_id, "stream_conflict", "read_adc_defined unavailable while streaming is active")
                 
                 # Use the working ADS1256 GetDefined method under lock
                 self._ensure_adc()
                 definition = params.get("definition", [])
-                with self.rm.lock:
-                    results = self.adc.ADS1256_GetDefined(definition)
+                try:
+                    with self.rm.lock:
+                        results = self.adc.ADS1256_GetDefined(definition)
+                except TimeoutError as e:
+                    return self._err_resp(_id, "timeout", f"ADC timeout: {e}")
+                except Exception as e:
+                    return self._err_resp(_id, "internal_error", f"ADC read error: {type(e).__name__}: {e}")
                 
                 return {"jsonrpc": "2.0", "id": _id, "result": {"channels": results}}
 
@@ -513,11 +546,11 @@ class Worker:
                 self.stream_cfg = None
                 return {"jsonrpc": "2.0", "id": _id, "result": {"ok": True}}
 
-            raise ValueError("Method not found")
+            return self._err_resp(_id, "method_not_found", f"Method not found: {method}")
             
         except Exception as e:
-            log.error(f"Request error: {e}")
-            return {"jsonrpc": "2.0", "id": _id, "error": {"code": -32000, "message": str(e)}}
+            log.error(f"Request error: {type(e).__name__}: {e}")
+            return self._err_resp(_id, "internal_error", f"Unhandled error: {type(e).__name__}: {e}")
 
     def _notify_stream_sample(self, sample: Dict[str, Any]) -> None:
         # Unsolicited event for stream samples
