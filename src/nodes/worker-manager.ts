@@ -78,7 +78,7 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         }
 
         try {
-            const p = path.join(__dirname, '..', 'python', 'worker.py');
+            const p = path.join(__dirname, '..', 'python', 'waveSharePythonWorker.py');
             this.debug(`path: ${p}`);
             const args = ['-u', p];
 
@@ -88,6 +88,17 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
             });
 
             this.log('Python worker started');
+
+            // Initialize ADC after worker starts
+            setTimeout(() => {
+                this.request({
+                    jsonrpc: '2.0',
+                    method: 'init_adc',
+                    params: {}
+                }).catch(error => {
+                    this.log(`ADC initialization failed: ${error.message}`);
+                });
+            }, 100);
 
             // Handle stdout (responses from worker) with buffering (5)
             this.worker.stdout?.on('data', (data) => {
@@ -333,11 +344,12 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
         });
 
         const ADC_VREF = 2.5; // 2.5V reference (hardwired LDO)
+        const FSR = 2 * ADC_VREF; // Full Scale Range = +/- ADC_VREF = 5.0V
         const pga = params.gain;
         
         // Convert raw ADC value to millivolts
-        // Formula: mV = 1000 * (raw/(2^23-1)) * (ADC_VREF/PGA)
-        const mV = 1000 * (result.raw / (Math.pow(2, 23) - 1)) * (ADC_VREF / pga);
+        // Formula: mV = 1000 * (raw/(2^23-1)) * (FSR/PGA)
+        const mV = 1000 * (result.raw / (Math.pow(2, 23) - 1)) * (FSR / pga);
 
         return {
             channel: result.channel,
@@ -380,6 +392,37 @@ class WorkerManager extends EventEmitter implements IWorkerManager {
                 value: rawValue
             }
         });
+    }
+
+    /**
+     * Read multiple ADC channels based on definition
+     */
+    async readADCDefined(definition: Array<{
+        channel: number;
+        differential?: boolean;
+        'neg-channel'?: number;
+        buffered?: boolean;
+        SPS?: number;
+        gain?: number;
+    }>): Promise<{
+        channels: Array<{
+            channel: number;
+            differential: boolean;
+            negChannel?: number | null;
+            buffered: boolean;
+            sps: number;
+            gain: number;
+            raw: number;
+            voltage: number;
+        }>;
+    }> {
+        const result: any = await this.request({
+            jsonrpc: '2.0',
+            method: 'read_adc_defined',
+            params: { definition }
+        });
+
+        return result;
     }
 
     /**

@@ -1,0 +1,231 @@
+[
+    {
+        "id": "pool-management-tab",
+        "type": "tab",
+        "label": "Pool Management",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "dac-voltage-control",
+        "type": "waveshare-da",
+        "z": "pool-management-tab",
+        "name": "Voltage Control",
+        "channel": 0,
+        "controlMode": "raw",
+        "value": 32768,
+        "voltage": 2.0,
+        "x": 200,
+        "y": 100,
+        "wires": [["voltage-display"]]
+    },
+    {
+        "id": "dac-current-control", 
+        "type": "waveshare-da",
+        "z": "pool-management-tab",
+        "name": "Current Control",
+        "channel": 1,
+        "controlMode": "raw", 
+        "value": 16384,
+        "voltage": 1.0,
+        "x": 200,
+        "y": 200,
+        "wires": [["current-display"]]
+    },
+    {
+        "id": "adc-current-sensor",
+        "type": "waveshare-ad",
+        "z": "pool-management-tab", 
+        "name": "Current Sensor",
+        "channel": 0,
+        "gain": 16,
+        "buffered": false,
+        "differential": false,
+        "negChannel": 8,
+        "sps": 1000,
+        "x": 200,
+        "y": 300,
+        "wires": [["current-monitor"]]
+    },
+    {
+        "id": "adc-voltage-monitor",
+        "type": "waveshare-ad", 
+        "z": "pool-management-tab",
+        "name": "Voltage Monitor",
+        "channel": 2,
+        "gain": 8,
+        "buffered": true,
+        "differential": false, 
+        "negChannel": 8,
+        "sps": 500,
+        "x": 200,
+        "y": 400,
+        "wires": [["voltage-monitor"]]
+    },
+    {
+        "id": "adc-ph-sensor",
+        "type": "waveshare-ad",
+        "z": "pool-management-tab",
+        "name": "pH Sensor", 
+        "channel": 4,
+        "gain": 32,
+        "buffered": true,
+        "differential": false,
+        "negChannel": 8,
+        "sps": 100,
+        "x": 200,
+        "y": 500,
+        "wires": [["ph-monitor"]]
+    },
+    {
+        "id": "voltage-display",
+        "type": "debug",
+        "z": "pool-management-tab",
+        "name": "Voltage Output",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 420,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "current-display", 
+        "type": "debug",
+        "z": "pool-management-tab",
+        "name": "Current Output",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg", 
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 420,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "current-monitor",
+        "type": "debug",
+        "z": "pool-management-tab", 
+        "name": "Current Reading",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto", 
+        "x": 420,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "voltage-monitor",
+        "type": "debug",
+        "z": "pool-management-tab",
+        "name": "Voltage Reading", 
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 420,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "ph-monitor",
+        "type": "debug",
+        "z": "pool-management-tab",
+        "name": "pH Reading",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false, 
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 420,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "inject-start-current",
+        "type": "inject",
+        "z": "pool-management-tab",
+        "name": "Read Current",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "5",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 110,
+        "y": 300,
+        "wires": [["adc-current-sensor"]]
+    },
+    {
+        "id": "inject-start-voltage",
+        "type": "inject", 
+        "z": "pool-management-tab",
+        "name": "Read Voltage",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "10",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 110,
+        "y": 400,
+        "wires": [["adc-voltage-monitor"]]
+    },
+    {
+        "id": "inject-start-ph",
+        "type": "inject",
+        "z": "pool-management-tab", 
+        "name": "Read pH",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "30",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 110,
+        "y": 500,
+        "wires": [["adc-ph-sensor"]]
+    }
+]
+
+

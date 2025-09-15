@@ -70,8 +70,8 @@ module.exports = function (RED: any) {
                 node.error(`Invalid channel ${comp.channel} in comparison "${comp.name}"`);
                 return;
             }
-            if (comp.differential && (comp.negChannel < 0 || comp.negChannel > 8)) {
-                node.error(`Invalid negative channel ${comp.negChannel} in comparison "${comp.name}"`);
+            if (comp.differential && (comp.negChannel < 0 || comp.negChannel > 7)) {
+                node.error(`Invalid negative channel ${comp.negChannel} in comparison "${comp.name}" - must be 0-7 in differential mode`);
                 return;
             }
             if (![1, 2, 4, 8, 16, 32, 64].includes(comp.gain)) {

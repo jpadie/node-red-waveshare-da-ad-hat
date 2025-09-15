@@ -1,0 +1,134 @@
+[
+    {
+        "id": "test_refactor_tab",
+        "type": "tab",
+        "label": "Refactor Test",
+        "disabled": false,
+        "info": "Test the refactored ADC/DAC conversion and new multi-ADC node"
+    },
+    {
+        "id": "test_adc_inject",
+        "type": "inject",
+        "z": "test_refactor_tab",
+        "name": "Test ADC Read",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{}",
+        "payloadType": "json",
+        "x": 120,
+        "y": 100,
+        "wires": [["test_adc_node"]]
+    },
+    {
+        "id": "test_adc_node",
+        "type": "waveshare-ad",
+        "z": "test_refactor_tab",
+        "name": "ADC CH0 Test",
+        "channel": "0",
+        "differential": false,
+        "negChannel": "8",
+        "gain": "1",
+        "buffered": false,
+        "drate": "100",
+        "averageCount": "1",
+        "x": 300,
+        "y": 100,
+        "wires": [["test_debug"]]
+    },
+    {
+        "id": "test_debug",
+        "type": "debug",
+        "z": "test_refactor_tab",
+        "name": "ADC Result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 480,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "test_multi_inject",
+        "type": "inject",
+        "z": "test_refactor_tab",
+        "name": "Start Multi-ADC",
+        "props": [
+            {
+                "p": "payload.command",
+                "v": "start",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 120,
+        "y": 200,
+        "wires": [["test_multi_node"]]
+    },
+    {
+        "id": "test_multi_node",
+        "type": "waveshare-ad-multi",
+        "z": "test_refactor_tab",
+        "name": "Multi ADC Test",
+        "comparisons": [
+            {
+                "name": "Test Ch0",
+                "channel": 0,
+                "differential": false,
+                "negChannel": 8,
+                "gain": 1,
+                "buffered": false,
+                "sps": 100
+            },
+            {
+                "name": "Test Ch1", 
+                "channel": 1,
+                "differential": false,
+                "negChannel": 8,
+                "gain": 1,
+                "buffered": false,
+                "sps": 100
+            }
+        ],
+        "emissionFrequency": 2,
+        "outputFormat": "aggregated",
+        "x": 300,
+        "y": 200,
+        "wires": [["test_multi_debug"]]
+    },
+    {
+        "id": "test_multi_debug",
+        "type": "debug",
+        "z": "test_refactor_tab",
+        "name": "Multi Result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 480,
+        "y": 200,
+        "wires": []
+    }
+]
+
+
