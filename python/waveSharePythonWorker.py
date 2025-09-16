@@ -286,6 +286,7 @@ class Worker:
         self.rm = SPIResourceManager(cfg)
         self.dac = DAC8532(self.rm, cfg)
         self.adc = None  # Lazy initialize ADS1256 on first use
+        self._adc_inited = False
 
         # Global stdout guard: divert accidental prints away from Node-RED
         # Keep a handle to the real stdout only for JSON responses
@@ -449,6 +450,7 @@ class Worker:
                     with self._suppress_stdout():
                         init_result = self.adc.ADS1256_init()
                     if init_result == 0:
+                        self._adc_inited = True
                         return {"jsonrpc": "2.0", "id": _id, "result": {"status": "ok", "message": "ADC initialized successfully"}}
                     return self._err_resp(_id, "ads_init_failed", "ADC initialization failed")
                 except Exception as e:
@@ -485,6 +487,15 @@ class Worker:
                     self.rm.ensure_gpio_ready()
                 except Exception as e:
                     return self._err_resp(_id, "gpio_unavailable", f"GPIO not ready: {e}")
+                # Ensure ADC is initialized (idempotent)
+                try:
+                    with self.rm.lock:
+                        if not self._adc_inited:
+                            with self._suppress_stdout():
+                                self.adc.ADS1256_init()
+                            self._adc_inited = True
+                except Exception as e:
+                    return self._err_resp(_id, "ads_init_failed", f"ADC init error: {type(e).__name__}: {e}")
                 definition = [{
                     "channel": int(params.get("channel", 0)),
                     "differential": bool(params.get("differential", False)),
@@ -536,6 +547,15 @@ class Worker:
                     self.rm.ensure_gpio_ready()
                 except Exception as e:
                     return self._err_resp(_id, "gpio_unavailable", f"GPIO not ready: {e}")
+                # Ensure ADC is initialized (idempotent)
+                try:
+                    with self.rm.lock:
+                        if not self._adc_inited:
+                            with self._suppress_stdout():
+                                self.adc.ADS1256_init()
+                            self._adc_inited = True
+                except Exception as e:
+                    return self._err_resp(_id, "ads_init_failed", f"ADC init error: {type(e).__name__}: {e}")
                 definition = params.get("definition", [])
                 try:
                     with self.rm.lock:
