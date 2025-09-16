@@ -12,6 +12,8 @@ import os
 from typing import Dict, Any, Optional, List, Tuple
 from queue import Queue, Empty
 from dataclasses import dataclass
+import io
+import contextlib
 
 # Optional libgpiod for edge events (Bookworm)
 try:
@@ -341,6 +343,26 @@ class Worker:
             },
         }
 
+    @contextlib.contextmanager
+    def _suppress_stdout(self):
+        """Suppress stdout temporarily to prevent non-JSON prints from leaking.
+        This avoids DEBUG prints in imported modules corrupting our JSON-RPC stream.
+        """
+        saved_stdout = sys.stdout
+        try:
+            sys.stdout = io.StringIO()
+            yield
+        finally:
+            try:
+                # Best-effort: capture and log any leaked text to stderr for debugging
+                leaked = sys.stdout.getvalue()
+                if leaked:
+                    for line in leaked.splitlines():
+                        log.debug(f"[suppressed stdout] {line}")
+            except Exception:
+                pass
+            sys.stdout = saved_stdout
+
     def _status(self) -> Dict[str, Any]:
         """Return health/status information."""
         return {
@@ -417,7 +439,8 @@ class Worker:
                 # Initialize ADC with forced GPIO allocation
                 try:
                     self._ensure_adc()
-                    init_result = self.adc.ADS1256_init()
+                    with self._suppress_stdout():
+                        init_result = self.adc.ADS1256_init()
                     if init_result == 0:
                         return {"jsonrpc": "2.0", "id": _id, "result": {"status": "ok", "message": "ADC initialized successfully"}}
                     return self._err_resp(_id, "ads_init_failed", "ADC initialization failed")
@@ -455,14 +478,15 @@ class Worker:
                     "differential": bool(params.get("differential", False)),
                     "neg-channel": int(params.get("negChannel", 8)),
                     "buffered": bool(params.get("buffered", False)),
-                    "SPS": float(params.get("drate", 10.0)),
+                    "SPS": int(params.get("drate", 10)),
                     "gain": int(params.get("gain", 1))
                 }]
                 
                 # Use getDefined to handle the actual reading under lock to serialize SPI access
                 try:
                     with self.rm.lock:
-                        results = self.adc.ADS1256_GetDefined(definition)
+                        with self._suppress_stdout():
+                            results = self.adc.ADS1256_GetDefined(definition)
                 except TimeoutError as e:
                     return self._err_resp(_id, "timeout", f"ADC timeout: {e}")
                 except Exception as e:
@@ -498,7 +522,8 @@ class Worker:
                 definition = params.get("definition", [])
                 try:
                     with self.rm.lock:
-                        results = self.adc.ADS1256_GetDefined(definition)
+                        with self._suppress_stdout():
+                            results = self.adc.ADS1256_GetDefined(definition)
                 except TimeoutError as e:
                     return self._err_resp(_id, "timeout", f"ADC timeout: {e}")
                 except Exception as e:
