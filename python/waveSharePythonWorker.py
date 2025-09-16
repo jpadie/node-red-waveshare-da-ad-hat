@@ -614,6 +614,67 @@ class Worker:
                 
                 return {"jsonrpc": "2.0", "id": _id, "result": {"channels": results}}
 
+            if method == "read_pair":
+                # params: { a: int, b: int, gain?:int, sps?:int, buffered?:bool, selfcal_before?:bool }
+                p = params
+                try:
+                    a = int(p.get("a"))
+                    b = int(p.get("b"))
+                except Exception:
+                    return self._err_resp(_id, "invalid_params", "a and b must be integers")
+                gain = int(p.get("gain", 1))
+                sps = int(p.get("sps", 10))
+                buffered = bool(p.get("buffered", False))
+                selfcal_before = bool(p.get("selfcal_before", False))
+
+                self._ensure_adc()
+                try:
+                    self.rm.ensure_gpio_ready()
+                except Exception as e:
+                    return self._err_resp(_id, "gpio_unavailable", f"GPIO not ready: {e}")
+
+                definition = [
+                    {"channel": a, "differential": True,  "neg-channel": b, "buffered": buffered, "SPS": sps, "gain": gain},  # A-B
+                    {"channel": b, "differential": True,  "neg-channel": a, "buffered": buffered, "SPS": sps, "gain": gain},  # B-A
+                    {"channel": a, "differential": False, "neg-channel": 8, "buffered": buffered, "SPS": sps, "gain": gain},  # A-SE
+                    {"channel": b, "differential": False, "neg-channel": 8, "buffered": buffered, "SPS": sps, "gain": gain},  # B-SE
+                ]
+
+                try:
+                    with self.rm.lock:
+                        if selfcal_before:
+                            with self._suppress_stdout():
+                                self.adc.ADS1256_init()
+                                try:
+                                    self._ads_selfcal()
+                                except Exception as _e:
+                                    log.warning(f"selfcal before pair read failed: {_e}")
+                        with self._suppress_stdout():
+                            readings = self.adc.ADS1256_GetDefined(definition)
+                except Exception as e:
+                    return self._err_resp(_id, "internal_error", f"Pair read error: {type(e).__name__}: {e}")
+
+                if not readings or len(readings) != 4:
+                    return self._err_resp(_id, "internal_error", "Pair read returned incomplete results")
+
+                ab, ba, a_se, b_se = readings
+                # Compute midref estimate and antisymmetry (ab+ba ideally 0)
+                midref_v = (a_se.get("voltage") + b_se.get("voltage")) / 2.0 if ("voltage" in a_se and "voltage" in b_se) else None
+                anti_sym = (ab.get("voltage") + ba.get("voltage")) if ("voltage" in ab and "voltage" in ba) else None
+
+                return {
+                    "jsonrpc": "2.0",
+                    "id": _id,
+                    "result": {
+                        "a_minus_b": ab,
+                        "b_minus_a": ba,
+                        "a_single": a_se,
+                        "b_single": b_se,
+                        "midref_voltage": midref_v,
+                        "antisymmetry_volts": anti_sym,
+                    }
+                }
+
             if method == "start_stream":
                 # params: { streamId: str, mode:"round_robin", channels: [{ch, differential, neg, gain, drate, buffered}] }
                 p = params
