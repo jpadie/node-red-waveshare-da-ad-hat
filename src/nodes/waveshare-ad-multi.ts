@@ -10,6 +10,10 @@ interface ComparisonConfig {
     gain: number;
     buffered: boolean;
     sps: number;
+    // Optional per-comparison pair read toggle (present via HTML UI)
+    // Kept optional to avoid breaking existing flows
+    readPair?: boolean;
+    selfcalBefore?: boolean;
 }
 
 interface WaveshareADMultiConfig {
@@ -152,21 +156,44 @@ module.exports = function (RED: any) {
                     for (const comparison of config.comparisons) {
                         if (!streamingActive) break;
                         
-                        const result = await workerManager.readADC(comparison.channel, {
-                            gain: comparison.gain,
-                            drate: comparison.sps,
-                            differential: comparison.differential,
-                            negChannel: comparison.negChannel,
-                            buffered: comparison.buffered
-                        });
-                        
-                        const comparisonResult: ComparisonResult = {
-                            name: comparison.name,
-                            channel: result.channel,
-                            raw: result.raw,
-                            mV: result.mV,
-                            config: result.config
-                        };
+                        const usePair: boolean = !!comparison.differential && !!(comparison as any).readPair;
+                        let comparisonResult: any;
+                        if (usePair) {
+                            const rpcReq = {
+                                jsonrpc: '2.0',
+                                method: 'read_pair',
+                                params: {
+                                    a: comparison.channel,
+                                    b: comparison.negChannel,
+                                    gain: comparison.gain,
+                                    sps: comparison.sps,
+                                    buffered: comparison.buffered,
+                                    selfcal_before: !!(comparison as any).selfcalBefore
+                                }
+                            };
+                            const pair = await workerManager.request(rpcReq);
+                            comparisonResult = {
+                                name: comparison.name,
+                                mode: 'read_pair',
+                                pair: pair,
+                                params: rpcReq.params
+                            };
+                        } else {
+                            const result = await workerManager.readADC(comparison.channel, {
+                                gain: comparison.gain,
+                                drate: comparison.sps,
+                                differential: comparison.differential,
+                                negChannel: comparison.negChannel,
+                                buffered: comparison.buffered
+                            });
+                            comparisonResult = {
+                                name: comparison.name,
+                                channel: result.channel,
+                                raw: result.raw,
+                                mV: result.mV,
+                                config: result.config
+                            } as ComparisonResult;
+                        }
                         
                         cycleMeasurements.push(comparisonResult);
                         

@@ -30,7 +30,8 @@ ssh_timeout "sudo systemctl stop nodered || echo 'Node-RED was not running'"
 
 echo "📁 Deploying files directly to node_modules..."
 # Deploy key files directly
-scp_timeout "python/worker.py" "~/.node-red/node_modules/@jpadie/waveshare-da-ad-hat/python/"
+scp_timeout "python/waveSharePythonWorker.py" "~/.node-red/node_modules/@jpadie/waveshare-da-ad-hat/python/"
+scp_timeout "python/waveSharePython.py" "~/.node-red/node_modules/@jpadie/waveshare-da-ad-hat/python/"
 scp_timeout "nodes/waveshare-ad.js" "~/.node-red/node_modules/@jpadie/waveshare-da-ad-hat/nodes/"
 scp_timeout "nodes/waveshare-da.js" "~/.node-red/node_modules/@jpadie/waveshare-da-ad-hat/nodes/"
 scp_timeout "nodes/waveshare-ad-multi.js" "~/.node-red/node_modules/@jpadie/waveshare-da-ad-hat/nodes/"

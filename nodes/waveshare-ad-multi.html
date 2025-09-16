@@ -28,6 +28,7 @@
                     negChannel: 8,
                     gain: 1,
                     buffered: false,
+                    readPair: false,
                     sps: 10.0
                 };
                 
@@ -55,7 +56,7 @@
                         
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; font-size: 13px;">
                             <div><strong>Channel:</strong> AIN${comp.channel}${comp.differential ? ` - AIN${comp.negChannel}` : ''}</div>
-                            <div><strong>Mode:</strong> ${comp.differential ? 'Differential' : 'Single-ended'}${comp.buffered ? ' (Buffered)' : ''}</div>
+                            <div><strong>Mode:</strong> ${comp.differential ? 'Differential' : 'Single-ended'}${comp.buffered ? ' (Buffered)' : ''}${comp.differential && comp.readPair ? ' + Read pair' : ''}</div>
                             <div><strong>Gain:</strong> ${comp.gain}x</div>
                             <div><strong>Sample Rate:</strong> ${comp.sps} SPS</div>
                             <div><strong>Range:</strong> ±${(2500 / comp.gain).toFixed(1)}mV</div>
@@ -101,6 +102,7 @@
                     negChannel: 1,
                     gain: 1,
                     buffered: false,
+                    readPair: false,
                     sps: 10.0
                 } : { ...node.comparisons[index] };
                 
@@ -155,6 +157,22 @@
                                     <input type="checkbox" id="edit-differential" ${comparison.differential ? 'checked' : ''} style="margin-right: 8px;">
                                     Differential Mode
                                 </label>
+                            </div>
+
+                            <div style="margin-bottom: 15px; ${comparison.differential ? '' : 'display: none;'}" id="readpair-section">
+                                <label class="nr-label" style="display:flex;align-items:center;">
+                                    <input type="checkbox" id="edit-readpair" ${comparison.readPair ? 'checked' : ''} style="margin-right:8px;">
+                                    Read pair (A−B, B−A, A, B)
+                                </label>
+                                <div class="form-tips">Enables composite read to quantify reference bias and antisymmetry.</div>
+                            </div>
+
+                            <div id="selfcal-section" style="margin-bottom: 15px; ${comparison.differential && comparison.readPair ? '' : 'display: none;'}">
+                                <label class="nr-label" style="display:flex;align-items:center;">
+                                    <input type="checkbox" id="edit-selfcal-before" style="margin-right:8px;">
+                                    Self-calibration before pair read
+                                </label>
+                                <div class="form-tips">Runs ADS1256 self-cal once immediately before a pair read.</div>
                             </div>
                             
                             <div id="neg-channel-section" style="margin-bottom: 15px; ${comparison.differential ? '' : 'display: none;'}">
@@ -219,18 +237,42 @@
                 
                 $('body').append(dialog);
                 
+                function refreshPairSections() {
+                    const isDiff = $('#edit-differential').prop('checked');
+                    const usePair = $('#edit-readpair').prop('checked');
+                    if (isDiff) {
+                        $('#neg-channel-section').show();
+                        $('#readpair-section').show();
+                    } else {
+                        $('#neg-channel-section').hide();
+                        $('#readpair-section').hide();
+                    }
+                    if (isDiff && usePair) {
+                        $('#selfcal-section').show();
+                    } else {
+                        $('#selfcal-section').hide();
+                    }
+                }
+
                 $('#edit-differential').change(function() {
                     if ($(this).prop('checked')) {
                         $('#neg-channel-section').show();
+                        $('#readpair-section').show();
                         // If negChannel is 8 (AINCOM), set to 1 for differential mode
                         if ($('#edit-neg-channel').val() == '8') {
                             $('#edit-neg-channel').val('1');
                         }
                     } else {
                         $('#neg-channel-section').hide();
+                        $('#readpair-section').hide();
+                        $('#selfcal-section').hide();
                         $('#edit-neg-channel').val(8);
                     }
+                    refreshPairSections();
                 });
+
+                $('#edit-readpair').change(refreshPairSections);
+                refreshPairSections();
                 
                 $('#cancel-edit').click(function() {
                     dialog.remove();
@@ -244,7 +286,10 @@
                         negChannel: parseInt($('#edit-neg-channel').val()),
                         gain: parseInt($('#edit-gain').val()),
                         buffered: $('#edit-buffered').prop('checked'),
-                        sps: parseFloat($('#edit-sps').val())
+                        readPair: $('#edit-readpair').prop('checked'),
+                        sps: parseFloat($('#edit-sps').val()),
+                        readPair: $('#edit-readpair').prop('checked'),
+                        selfcalBefore: $('#edit-selfcal-before').prop('checked')
                     };
                     
                     if (isNew) {
@@ -270,7 +315,10 @@
             
             // Sync function to update hidden input when comparisons change
             function updateHiddenInput() {
-                $('#node-input-comparisons-json').val(JSON.stringify(node.comparisons));
+                const el = $('#node-input-comparisons-json');
+                el.val(JSON.stringify(node.comparisons));
+                // Trigger change to mark the node as dirty for redeploy
+                el.trigger('change');
             }
             
             $('#add-comparison').click(function() {

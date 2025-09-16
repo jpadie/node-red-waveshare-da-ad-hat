@@ -7,6 +7,7 @@
             channel: {value: 0},
             differential: {value: false},
             negChannel: {value: 1},
+            readPair: {value: false},
             gain: {value: 1},
             buffered: {value: true},
             drate: {value: 5.0},
@@ -38,6 +39,12 @@
     <div class="form-row">
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Waveshare AD">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-readPair"><i class="fa fa-link"></i> Read pair (A−B, B−A, A, B)</label>
+        <input type="checkbox" id="node-input-readPair">
+        <div class="help-info">When enabled and differential is set, uses pair read to also return A, B and antisymmetry.</div>
     </div>
     
     <div class="form-row">

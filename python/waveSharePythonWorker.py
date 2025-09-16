@@ -658,8 +658,9 @@ class Worker:
                     return self._err_resp(_id, "internal_error", "Pair read returned incomplete results")
 
                 ab, ba, a_se, b_se = readings
-                # Compute midref estimate and antisymmetry (ab+ba ideally 0)
-                midref_v = (a_se.get("voltage") + b_se.get("voltage")) / 2.0 if ("voltage" in a_se and "voltage" in b_se) else None
+                # Compute midpoint between A and B single-ended (not the reference)
+                midpoint_ab = (a_se.get("voltage") + b_se.get("voltage")) / 2.0 if ("voltage" in a_se and "voltage" in b_se) else None
+                # Antisymmetry check: (A-B) + (B-A) ideally 0
                 anti_sym = (ab.get("voltage") + ba.get("voltage")) if ("voltage" in ab and "voltage" in ba) else None
 
                 return {
@@ -670,7 +671,9 @@ class Worker:
                         "b_minus_a": ba,
                         "a_single": a_se,
                         "b_single": b_se,
-                        "midref_voltage": midref_v,
+                        # midref_channel reports B single-ended voltage (commonly the midref channel)
+                        "midref_channel": b_se.get("voltage") if "voltage" in b_se else None,
+                        "midpoint_ab": midpoint_ab,
                         "antisymmetry_volts": anti_sym,
                     }
                 }
