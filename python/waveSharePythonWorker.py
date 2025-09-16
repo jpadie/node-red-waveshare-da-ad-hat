@@ -243,16 +243,38 @@ class DAC8532:
         with self.rm.lock:
             self.rm.ensure_gpio_ready()
             self.rm._setup_spi()
+            # Ensure DAC CS pin is configured as OUTPUT (defensive)
+            try:
+                GPIO.setup(self.cfg.dac_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+            except Exception:
+                # Force mode then retry
+                try:
+                    GPIO.setmode(GPIO.BCM)
+                    GPIO.setup(self.cfg.dac_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+                except Exception as e:
+                    raise RuntimeError(f"DAC CS pin setup failed: {e}")
 
         # Match working da.py: 20kHz, mode=1
         cmd = 0x30 if port == 0 else 0x34
         hi = (value >> 8) & 0xFF
         lo = value & 0xFF
-        GPIO.output(self.cfg.dac_cs_pin, GPIO.LOW)
+        try:
+            GPIO.output(self.cfg.dac_cs_pin, GPIO.LOW)
+        except Exception:
+            # Reconfigure and retry once
+            GPIO.setup(self.cfg.dac_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+            GPIO.output(self.cfg.dac_cs_pin, GPIO.LOW)
         try:
             self.rm.spi.writebytes([cmd, hi, lo])
         finally:
-            GPIO.output(self.cfg.dac_cs_pin, GPIO.HIGH)
+            try:
+                GPIO.output(self.cfg.dac_cs_pin, GPIO.HIGH)
+            except Exception:
+                # As last resort, re-setup and set high
+                try:
+                    GPIO.setup(self.cfg.dac_cs_pin, GPIO.OUT, initial=GPIO.HIGH)
+                except Exception:
+                    pass
         return {"port": port, "value": value}
 
     def set_voltage(self, port: int, voltage: float, vref: float = 5.0) -> Dict[str, Any]:
