@@ -480,6 +480,11 @@ class Worker:
                 
                 # Convert single channel request to definition format
                 self._ensure_adc()
+                # Ensure GPIO is ready before attempting any ADC operation
+                try:
+                    self.rm.ensure_gpio_ready()
+                except Exception as e:
+                    return self._err_resp(_id, "gpio_unavailable", f"GPIO not ready: {e}")
                 definition = [{
                     "channel": int(params.get("channel", 0)),
                     "differential": bool(params.get("differential", False)),
@@ -526,6 +531,11 @@ class Worker:
                 
                 # Use the working ADS1256 GetDefined method under lock
                 self._ensure_adc()
+                # Ensure GPIO is ready before attempting any ADC operation
+                try:
+                    self.rm.ensure_gpio_ready()
+                except Exception as e:
+                    return self._err_resp(_id, "gpio_unavailable", f"GPIO not ready: {e}")
                 definition = params.get("definition", [])
                 try:
                     with self.rm.lock:
