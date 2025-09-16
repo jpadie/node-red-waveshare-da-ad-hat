@@ -314,6 +314,8 @@ class Worker:
                 # Import already available at module top; instantiate now
                 # Ensure shared SPI is opened and configured
                 self.rm._setup_spi()
+                # Ensure GPIO is ready before ADS1256 uses pins
+                self.rm.ensure_gpio_ready()
                 # Inject shared SPI into waveSharePython module so ADS1256 uses it
                 try:
                     import waveSharePython as _wsp
