@@ -287,6 +287,11 @@ class Worker:
         self.dac = DAC8532(self.rm, cfg)
         self.adc = None  # Lazy initialize ADS1256 on first use
 
+        # Global stdout guard: divert accidental prints away from Node-RED
+        # Keep a handle to the real stdout only for JSON responses
+        self._real_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
         self.running = True
         self.last_activity = time.time()
         self.in_progress = threading.Event()
@@ -419,8 +424,8 @@ class Worker:
         return box.get("ret"), None
 
     def _write_response(self, resp: Dict[str, Any]) -> None:
-        sys.stdout.write(json.dumps(resp) + "\n")
-        sys.stdout.flush()
+        self._real_stdout.write(json.dumps(resp) + "\n")
+        self._real_stdout.flush()
 
     def handle(self, req: Dict[str, Any]) -> Dict[str, Any]:
         self._tick()
@@ -580,8 +585,8 @@ class Worker:
     def _notify_stream_sample(self, sample: Dict[str, Any]) -> None:
         # Unsolicited event for stream samples
         msg = {"jsonrpc": "2.0", "method": "stream_sample", "params": sample}
-        sys.stdout.write(json.dumps(msg) + "\n")
-        sys.stdout.flush()
+        self._real_stdout.write(json.dumps(msg) + "\n")
+        self._real_stdout.flush()
 
     def _stream_loop(self) -> None:
         cfg = self.stream_cfg or {}
