@@ -629,7 +629,8 @@ class Worker:
         last_cfg: Dict[str, Any] = {"ch": None, "neg": None, "gain": None, "drate": None, "buffered": None, "differential": None}
         # Ensure hardware initialized before streaming
         try:
-            self.adc.ADS1256_init()
+            with self._suppress_stdout():
+                self.adc.ADS1256_init()
         except Exception as e:
             self._notify_stream_sample({
                 "streamId": stream_id,
@@ -668,7 +669,8 @@ class Worker:
                     }]
                     
                     with self.rm.lock:
-                        results = self.adc.ADS1256_GetDefined(definition)
+                        with self._suppress_stdout():
+                            results = self.adc.ADS1256_GetDefined(definition)
                     if not results or len(results) == 0:
                         raise RuntimeError("No result from getDefined")
                     
