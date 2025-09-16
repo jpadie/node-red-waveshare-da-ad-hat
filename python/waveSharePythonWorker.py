@@ -403,6 +403,17 @@ class Worker:
             "streamRunning": bool(self.stream_running),
         }
 
+    def _ads_selfcal(self) -> None:
+        """Trigger ADS1256 self-calibration (SELFCAL) and wait for DRDY."""
+        try:
+            import waveSharePython as _wsp
+        except Exception as e:
+            raise RuntimeError(f"waveSharePython import failed for selfcal: {e}")
+        with self.rm.lock:
+            with self._suppress_stdout():
+                self.adc.ADS1256_WriteCmd(_wsp.CMD['CMD_SELFCAL'])
+                self.adc.ADS1256_WaitDRDY()
+
     def _sig(self, signum, _frame):
         log.info(f"Signal {signum}; shutting down")
         self.running = False
@@ -472,11 +483,24 @@ class Worker:
                     with self._suppress_stdout():
                         init_result = self.adc.ADS1256_init()
                     if init_result == 0:
+                        # One-time self calibration after successful init
+                        try:
+                            self._ads_selfcal()
+                        except Exception as _e:
+                            log.warning(f"ADS1256 selfcal after init failed: {_e}")
                         self._adc_inited = True
                         return {"jsonrpc": "2.0", "id": _id, "result": {"status": "ok", "message": "ADC initialized successfully"}}
                     return self._err_resp(_id, "ads_init_failed", "ADC initialization failed")
                 except Exception as e:
                     return self._err_resp(_id, "ads_init_failed", f"ADC init error: {type(e).__name__}: {e}")
+
+            if method == "selfcal":
+                try:
+                    self._ensure_adc()
+                    self._ads_selfcal()
+                    return {"jsonrpc": "2.0", "id": _id, "result": {"status": "ok", "message": "ADS1256 self-calibrated"}}
+                except Exception as e:
+                    return self._err_resp(_id, "internal_error", f"Selfcal error: {type(e).__name__}: {e}")
             
             if method == "set_dac_value":
                 ret = self.dac.set_value(int(params["port"]), int(params["value"]))
